@@ -1,0 +1,92 @@
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+  BASE_URL: https://www.churchofjesuschrist.org/study/scriptures
+
+tasks:
+  scrape:
+    desc: Scrape one or more scripture URLs
+    cmds:
+      - go run ./cmd/scrape/ {{.CLI_ARGS}}
+    silent: true
+
+  inspect:
+    desc: Inspect HTML structure of a scripture page
+    cmds:
+      - go run ./cmd/inspect/
+    silent: true
+
+  scrape:ot:
+    desc: Scrape the entire Old Testament (929 chapters)
+    cmds:
+      - for: {var: OT_BOOKS}
+        cmd: >-
+          go run ./cmd/scrape/
+          $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
+          xargs -I{} echo "{{.BASE_URL}}/ot/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
+    vars:
+      OT_BOOKS: >-
+        gen:50 ex:40 lev:27 num:36 deut:34 josh:24 judg:21 ruth:4
+        1-sam:31 2-sam:24 1-kgs:22 2-kgs:25 1-chr:29 2-chr:36 ezra:10
+        neh:13 esth:10 job:42 ps:150 prov:31 eccl:12 song:8
+        isa:66 jer:52 lam:5 ezek:48 dan:12 hosea:14 joel:3 amos:9
+        obad:1 jonah:4 micah:7 nahum:3 hab:3 zeph:3 hag:2 zech:14 mal:4
+
+  scrape:nt:
+    desc: Scrape the entire New Testament (260 chapters)
+    cmds:
+      - for: {var: NT_BOOKS}
+        cmd: >-
+          go run ./cmd/scrape/
+          $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
+          xargs -I{} echo "{{.BASE_URL}}/nt/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
+    vars:
+      NT_BOOKS: >-
+        matt:28 mark:16 luke:24 john:21 acts:28 rom:16 1-cor:16 2-cor:13
+        gal:6 eph:6 philip:4 col:4 1-thes:5 2-thes:3 1-tim:6 2-tim:4
+        titus:3 philem:1 heb:13 james:5 1-pet:5 2-pet:3 1-jn:5 2-jn:1
+        3-jn:1 jude:1 rev:22
+
+  scrape:bofm:
+    desc: Scrape the entire Book of Mormon (239 chapters)
+    cmds:
+      - for: {var: BOFM_BOOKS}
+        cmd: >-
+          go run ./cmd/scrape/
+          $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
+          xargs -I{} echo "{{.BASE_URL}}/bofm/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
+    vars:
+      BOFM_BOOKS: >-
+        1-ne:22 2-ne:33 jacob:7 enos:1 jarom:1 omni:1 w-of-m:1
+        mosiah:29 alma:63 hel:16 3-ne:30 4-ne:1 morm:9 ether:15 moro:10
+
+  scrape:dc:
+    desc: Scrape the Doctrine and Covenants (138 sections + 2 Official Declarations)
+    cmds:
+      - >-
+        go run ./cmd/scrape/
+        $(seq 1 138 | xargs -I{} echo "{{.BASE_URL}}/dc-testament/dc/{}?lang=eng")
+        {{.BASE_URL}}/dc-testament/od/1?lang=eng
+        {{.BASE_URL}}/dc-testament/od/2?lang=eng
+
+  scrape:pgp:
+    desc: Scrape the Pearl of Great Price (16 chapters)
+    cmds:
+      - for: {var: PGP_BOOKS}
+        cmd: >-
+          go run ./cmd/scrape/
+          $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
+          xargs -I{} echo "{{.BASE_URL}}/pgp/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
+    vars:
+      PGP_BOOKS: moses:8 abr:5 js-m:1 js-h:1 a-of-f:1
+
+  scrape:all:
+    desc: Scrape all standard works (1584 chapters)
+    cmds:
+      - task: scrape:ot
+      - task: scrape:nt
+      - task: scrape:bofm
+      - task: scrape:dc
+      - task: scrape:pgp

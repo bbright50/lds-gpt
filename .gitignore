@@ -1,0 +1,5 @@
+.claude/
+bin/
+**/.DS_Store
+
+pkg/data/
