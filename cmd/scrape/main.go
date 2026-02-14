@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -81,14 +80,5 @@ func outputPath(rawURL, outDir string) (string, error) {
 }
 
 func writeJSON(ch scraper.Chapter, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(ch, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal json: %w", err)
-	}
-
-	return os.WriteFile(path, append(data, '\n'), 0644)
+	return scraper.WriteJSON(ch, path)
 }

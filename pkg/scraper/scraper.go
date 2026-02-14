@@ -1,7 +1,9 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +33,7 @@ func ScrapeChapter(ctx context.Context, rawURL, cacheDir string) (Chapter, error
 		return Chapter{}, fmt.Errorf("url cannot be empty")
 	}
 
-	doc, err := fetchDocument(ctx, rawURL, cacheDir)
+	doc, _, err := fetchDocument(ctx, rawURL, cacheDir)
 	if err != nil {
 		return Chapter{}, fmt.Errorf("fetch document: %w", err)
 	}
@@ -53,7 +55,7 @@ func ScrapeChapter(ctx context.Context, rawURL, cacheDir string) (Chapter, error
 	}, nil
 }
 
-func fetchDocument(ctx context.Context, rawURL, cacheDir string) (*goquery.Document, error) {
+func fetchDocument(ctx context.Context, rawURL, cacheDir string) (*goquery.Document, bool, error) {
 	cachePath, _ := cachePath(rawURL, cacheDir)
 
 	if cachePath != "" {
@@ -61,44 +63,44 @@ func fetchDocument(ctx context.Context, rawURL, cacheDir string) (*goquery.Docum
 			defer f.Close()
 			doc, err := goquery.NewDocumentFromReader(f)
 			if err != nil {
-				return nil, fmt.Errorf("parse cached html: %w", err)
+				return nil, false, fmt.Errorf("parse cached html: %w", err)
 			}
-			return doc, nil
+			return doc, true, nil
 		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, false, fmt.Errorf("create request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http get: %w", err)
+		return nil, false, fmt.Errorf("http get: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, false, fmt.Errorf("read body: %w", err)
 	}
 
 	if cachePath != "" {
 		if err := writeCache(cachePath, body); err != nil {
-			return nil, fmt.Errorf("write cache: %w", err)
+			return nil, false, fmt.Errorf("write cache: %w", err)
 		}
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	if err != nil {
-		return nil, fmt.Errorf("parse html: %w", err)
+		return nil, false, fmt.Errorf("parse html: %w", err)
 	}
 
-	return doc, nil
+	return doc, false, nil
 }
 
 func cachePath(rawURL, cacheDir string) (string, error) {
@@ -280,6 +282,25 @@ func collectCategories(li *goquery.Selection) []string {
 	})
 
 	return categories
+}
+
+// WriteJSON marshals data as indented JSON and writes it to path,
+// creating parent directories as needed. Unlike json.MarshalIndent,
+// it does not HTML-escape characters like &, <, >.
+func WriteJSON(data any, path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(data); err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
+
+	return os.WriteFile(path, buf.Bytes(), 0644)
 }
 
 func normalizeWhitespace(s string) string {

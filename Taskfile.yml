@@ -82,6 +82,30 @@ tasks:
     vars:
       PGP_BOOKS: moses:8 abr:5 js-m:1 js-h:1 a-of-f:1
 
+  scrape:tg:
+    desc: Scrape the Topical Guide (~3514 entries)
+    cmds:
+      - go run ./cmd/scrape-tg/
+    silent: true
+
+  scrape:bd:
+    desc: Scrape the Bible Dictionary (~1276 entries)
+    cmds:
+      - go run ./cmd/scrape-bd/
+    silent: true
+
+  scrape:tc:
+    desc: Scrape the Triple Combination Index (~3059 entries)
+    cmds:
+      - go run ./cmd/scrape-tc/
+    silent: true
+
+  scrape:jst:
+    desc: Scrape the Joseph Smith Translation (~100 entries)
+    cmds:
+      - go run ./cmd/scrape-jst/
+    silent: true
+
   scrape:all:
     desc: Scrape all standard works (1584 chapters)
     cmds:
