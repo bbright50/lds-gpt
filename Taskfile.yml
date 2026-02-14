@@ -9,21 +9,21 @@ tasks:
   scrape:
     desc: Scrape one or more scripture URLs
     cmds:
-      - go run ./cmd/scrape/ {{.CLI_ARGS}}
+      - go run ./cmd/scrapers/scriptures/ {{.CLI_ARGS}}
     silent: true
 
   inspect:
     desc: Inspect HTML structure of a scripture page
     cmds:
-      - go run ./cmd/inspect/
+      - go run ./cmd/scrapers/inspect/
     silent: true
 
   scrape:ot:
     desc: Scrape the entire Old Testament (929 chapters)
     cmds:
-      - for: {var: OT_BOOKS}
+      - for: { var: OT_BOOKS }
         cmd: >-
-          go run ./cmd/scrape/
+          go run ./cmd/scrapers/scriptures/
           $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
           xargs -I{} echo "{{.BASE_URL}}/ot/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
     vars:
@@ -37,9 +37,9 @@ tasks:
   scrape:nt:
     desc: Scrape the entire New Testament (260 chapters)
     cmds:
-      - for: {var: NT_BOOKS}
+      - for: { var: NT_BOOKS }
         cmd: >-
-          go run ./cmd/scrape/
+          go run ./cmd/scrapers/scriptures/
           $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
           xargs -I{} echo "{{.BASE_URL}}/nt/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
     vars:
@@ -52,9 +52,9 @@ tasks:
   scrape:bofm:
     desc: Scrape the entire Book of Mormon (239 chapters)
     cmds:
-      - for: {var: BOFM_BOOKS}
+      - for: { var: BOFM_BOOKS }
         cmd: >-
-          go run ./cmd/scrape/
+          go run ./cmd/scrapers/scriptures/
           $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
           xargs -I{} echo "{{.BASE_URL}}/bofm/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
     vars:
@@ -66,7 +66,7 @@ tasks:
     desc: Scrape the Doctrine and Covenants (138 sections + 2 Official Declarations)
     cmds:
       - >-
-        go run ./cmd/scrape/
+        go run ./cmd/scrapers/scriptures/
         $(seq 1 138 | xargs -I{} echo "{{.BASE_URL}}/dc-testament/dc/{}?lang=eng")
         {{.BASE_URL}}/dc-testament/od/1?lang=eng
         {{.BASE_URL}}/dc-testament/od/2?lang=eng
@@ -74,9 +74,9 @@ tasks:
   scrape:pgp:
     desc: Scrape the Pearl of Great Price (16 chapters)
     cmds:
-      - for: {var: PGP_BOOKS}
+      - for: { var: PGP_BOOKS }
         cmd: >-
-          go run ./cmd/scrape/
+          go run ./cmd/scrapers/scriptures/
           $(seq 1 $(echo "{{.ITEM}}" | cut -d: -f2) |
           xargs -I{} echo "{{.BASE_URL}}/pgp/$(echo "{{.ITEM}}" | cut -d: -f1)/{}?lang=eng")
     vars:
@@ -85,25 +85,25 @@ tasks:
   scrape:tg:
     desc: Scrape the Topical Guide (~3514 entries)
     cmds:
-      - go run ./cmd/scrape-tg/
+      - go run ./cmd/scrapers/tg/
     silent: true
 
   scrape:bd:
     desc: Scrape the Bible Dictionary (~1276 entries)
     cmds:
-      - go run ./cmd/scrape-bd/
+      - go run ./cmd/scrapers/bd/
     silent: true
 
   scrape:tc:
     desc: Scrape the Triple Combination Index (~3059 entries)
     cmds:
-      - go run ./cmd/scrape-tc/
+      - go run ./cmd/scrapers/tc/
     silent: true
 
   scrape:jst:
     desc: Scrape the Joseph Smith Translation (~100 entries)
     cmds:
-      - go run ./cmd/scrape-jst/
+      - go run ./cmd/scrapers/jst/
     silent: true
 
   scrape:all:
