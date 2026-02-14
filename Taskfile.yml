@@ -106,6 +106,26 @@ tasks:
       - go run ./cmd/scrapers/jst/
     silent: true
 
+  load:
+    desc: Load all scraped data into the SQLite database (phases 1-5)
+    cmds:
+      - go run ./cmd/dataloader/
+
+  embed:
+    desc: Generate embeddings for all entities (phase 6 only, existing DB)
+    cmds:
+      - go run ./cmd/dataloader/ --embed-only
+
+  load-and-embed:
+    desc: Load all scraped data + generate embeddings (phases 1-6)
+    cmds:
+      - go run ./cmd/dataloader/ --embed
+
+  generate:
+    desc: Generate Ent entities
+    cmds:
+      - go generate ./internal/libsql/generated
+
   scrape:all:
     desc: Scrape all standard works (1584 chapters)
     cmds:
