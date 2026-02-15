@@ -15,6 +15,10 @@ func TestClient(t *testing.T) *Client {
 		t.Fatalf("creating test client: %v", err)
 	}
 
+	// In-memory SQLite creates a separate database per connection.
+	// Limit to 1 so all queries (including concurrent ones) share the same DB.
+	client.db.SetMaxOpenConns(1)
+
 	t.Cleanup(func() {
 		if err := client.Close(); err != nil {
 			t.Errorf("closing test client: %v", err)

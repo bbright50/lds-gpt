@@ -47,7 +47,7 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "name", Type: field.TypeString, Unique: true},
 		{Name: "text", Type: field.TypeString, Size: 2147483647},
-		{Name: "embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 	}
 	// BibleDictEntriesTable holds the schema information for the "bible_dict_entries" table.
 	BibleDictEntriesTable = &schema.Table{
@@ -82,7 +82,7 @@ var (
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "number", Type: field.TypeInt},
 		{Name: "summary", Type: field.TypeString, Nullable: true, Size: 2147483647},
-		{Name: "summary_embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "summary_embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 		{Name: "url", Type: field.TypeString, Nullable: true},
 		{Name: "book_chapters", Type: field.TypeInt},
 	}
@@ -139,7 +139,7 @@ var (
 	IndexEntriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "name", Type: field.TypeString, Unique: true},
-		{Name: "embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 	}
 	// IndexEntriesTable holds the schema information for the "index_entries" table.
 	IndexEntriesTable = &schema.Table{
@@ -156,7 +156,7 @@ var (
 		{Name: "compare_ref", Type: field.TypeString, Nullable: true},
 		{Name: "summary", Type: field.TypeString, Nullable: true, Size: 2147483647},
 		{Name: "text", Type: field.TypeString, Size: 2147483647},
-		{Name: "embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 	}
 	// JstPassagesTable holds the schema information for the "jst_passages" table.
 	JstPassagesTable = &schema.Table{
@@ -203,7 +203,7 @@ var (
 	TopicalGuideEntriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "name", Type: field.TypeString, Unique: true},
-		{Name: "embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 	}
 	// TopicalGuideEntriesTable holds the schema information for the "topical_guide_entries" table.
 	TopicalGuideEntriesTable = &schema.Table{
@@ -311,7 +311,7 @@ var (
 	VerseGroupsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "text", Type: field.TypeString, Size: 2147483647},
-		{Name: "embedding", Type: field.TypeBytes, Nullable: true},
+		{Name: "embedding", Type: field.TypeBytes, Nullable: true, SchemaType: map[string]string{"sqlite3": "F32_BLOB(1024)"}},
 		{Name: "start_verse_number", Type: field.TypeInt},
 		{Name: "end_verse_number", Type: field.TypeInt},
 		{Name: "chapter_verse_groups", Type: field.TypeInt},

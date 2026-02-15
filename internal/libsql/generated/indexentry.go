@@ -18,7 +18,7 @@ type IndexEntry struct {
 	ID int `json:"id,omitempty"`
 	// Entry name, e.g. 'Aaron1--brother of Moses'
 	Name string `json:"name,omitempty"`
-	// Vector embedding of name + phrase snippets (packed float32 blob)
+	// Vector embedding (1024-dim float32)
 	Embedding *[]byte `json:"embedding,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the IndexEntryQuery when eager-loading is set.

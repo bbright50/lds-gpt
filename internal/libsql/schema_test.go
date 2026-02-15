@@ -580,8 +580,13 @@ func TestEmbeddingRoundTrip(t *testing.T) {
 	book := createTestBook(t, ctx, ec, vol)
 	ch := createTestChapter(t, ctx, ec, book)
 
-	// Encode a small embedding as packed float32 bytes.
-	embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+	// Encode a 1024-dim embedding as packed float32 bytes.
+	embedding := make([]float32, 1024)
+	embedding[0] = 0.1
+	embedding[1] = 0.2
+	embedding[2] = 0.3
+	embedding[3] = 0.4
+	embedding[4] = 0.5
 	blobBytes := vec.Float32sToBytes(embedding)
 
 	vg, err := ec.VerseGroup.Create().
@@ -627,6 +632,45 @@ func TestEmbeddingRoundTrip(t *testing.T) {
 	}
 	if foundCh.SummaryEmbedding == nil {
 		t.Error("chapter summary_embedding is nil after round-trip")
+	}
+}
+
+func TestVectorSearch(t *testing.T) {
+	client := TestClient(t)
+	ctx := context.Background()
+	ec := client.Ent()
+
+	vol := createTestVolume(t, ctx, ec)
+	book := createTestBook(t, ctx, ec, vol)
+	ch := createTestChapter(t, ctx, ec, book)
+
+	// Create a 1024-dim embedding (unit vector along first axis).
+	embedding := make([]float32, 1024)
+	embedding[0] = 1.0
+	blobBytes := vec.Float32sToBytes(embedding)
+
+	_, err := ec.VerseGroup.Create().
+		SetText("Vector search test").
+		SetStartVerseNumber(1).
+		SetEndVerseNumber(1).
+		SetChapter(ch).
+		SetEmbedding(blobBytes).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("creating verse group with embedding: %v", err)
+	}
+
+	// Query using vector_distance_cos: self-distance should be ~0.
+	var distance float64
+	err = client.Sqlx().GetContext(ctx, &distance,
+		"SELECT vector_distance_cos(embedding, ?) FROM verse_groups WHERE embedding IS NOT NULL LIMIT 1",
+		blobBytes,
+	)
+	if err != nil {
+		t.Fatalf("vector_distance_cos query: %v", err)
+	}
+	if distance > 1e-6 {
+		t.Errorf("expected self-distance ~0, got %f", distance)
 	}
 }
 

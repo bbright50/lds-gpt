@@ -2,6 +2,7 @@ package schema
 
 import (
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 )
@@ -23,7 +24,10 @@ func (BibleDictEntry) Fields() []ent.Field {
 		field.Bytes("embedding").
 			Optional().
 			Nillable().
-			Comment("Vector embedding of text (packed float32 blob)"),
+			SchemaType(map[string]string{
+				dialect.SQLite: "F32_BLOB(1024)",
+			}).
+			Comment("Vector embedding (1024-dim float32)"),
 	}
 }
 

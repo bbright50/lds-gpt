@@ -21,7 +21,7 @@ type Chapter struct {
 	Number int `json:"number,omitempty"`
 	// Chapter heading/summary text
 	Summary string `json:"summary,omitempty"`
-	// Vector embedding of summary (packed float32 blob)
+	// Vector embedding of summary (1024-dim float32)
 	SummaryEmbedding *[]byte `json:"summary_embedding,omitempty"`
 	// Source URL for this chapter
 	URL string `json:"url,omitempty"`

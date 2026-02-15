@@ -2,6 +2,7 @@ package schema
 
 import (
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 )
@@ -22,7 +23,10 @@ func (Chapter) Fields() []ent.Field {
 		field.Bytes("summary_embedding").
 			Optional().
 			Nillable().
-			Comment("Vector embedding of summary (packed float32 blob)"),
+			SchemaType(map[string]string{
+				dialect.SQLite: "F32_BLOB(1024)",
+			}).
+			Comment("Vector embedding of summary (1024-dim float32)"),
 		field.String("url").
 			Optional().
 			Comment("Source URL for this chapter"),

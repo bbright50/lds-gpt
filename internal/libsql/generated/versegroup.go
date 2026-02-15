@@ -19,7 +19,7 @@ type VerseGroup struct {
 	ID int `json:"id,omitempty"`
 	// Concatenated verse texts
 	Text string `json:"text,omitempty"`
-	// Vector embedding (packed float32 blob)
+	// Vector embedding (1024-dim float32)
 	Embedding *[]byte `json:"embedding,omitempty"`
 	// First verse number in group
 	StartVerseNumber int `json:"start_verse_number,omitempty"`

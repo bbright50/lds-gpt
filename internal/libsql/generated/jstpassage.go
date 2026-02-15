@@ -28,7 +28,7 @@ type JSTPassage struct {
 	Summary string `json:"summary,omitempty"`
 	// Concatenated JST verse text
 	Text string `json:"text,omitempty"`
-	// Vector embedding of text (packed float32 blob)
+	// Vector embedding (1024-dim float32)
 	Embedding *[]byte `json:"embedding,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JSTPassageQuery when eager-loading is set.

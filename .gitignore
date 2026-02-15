@@ -3,4 +3,7 @@ bin/
 **/.DS_Store
 
 .env
+dataloader
 pkg/data/
+data/lds-gpt.db-shm
+data/lds-gpt.db-wal

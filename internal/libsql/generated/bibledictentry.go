@@ -20,7 +20,7 @@ type BibleDictEntry struct {
 	Name string `json:"name,omitempty"`
 	// Full definition/article text
 	Text string `json:"text,omitempty"`
-	// Vector embedding of text (packed float32 blob)
+	// Vector embedding (1024-dim float32)
 	Embedding *[]byte `json:"embedding,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the BibleDictEntryQuery when eager-loading is set.
