@@ -2,6 +2,7 @@ package libsql
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"lds-gpt/internal/utils/vec"
@@ -351,11 +352,18 @@ func TestDoContextualSearch(t *testing.T) {
 		t.Errorf("expected at least 3 results, got %d", len(results))
 	}
 
-	// Verify results are sorted by distance.
+	// Verify results are sorted by rank score (distance - typeBonus).
+	rankScore := func(r SearchResult) float64 {
+		bonus := 0.0
+		if r.EntityType == EntityVerse {
+			bonus = defaultVerseBonus
+		}
+		return r.Distance - bonus
+	}
 	for i := 1; i < len(results); i++ {
-		if results[i].Distance < results[i-1].Distance {
-			t.Errorf("results not sorted: index %d distance %f < index %d distance %f",
-				i, results[i].Distance, i-1, results[i-1].Distance)
+		if rankScore(results[i]) < rankScore(results[i-1]) {
+			t.Errorf("results not sorted by rank score: index %d score %f < index %d score %f",
+				i, rankScore(results[i]), i-1, rankScore(results[i-1]))
 		}
 	}
 
@@ -426,5 +434,137 @@ func TestSortByDistanceEmpty(t *testing.T) {
 	sorted = SortByDistance([]SearchResult{})
 	if len(sorted) != 0 {
 		t.Errorf("expected empty slice for empty input, got %d", len(sorted))
+	}
+}
+
+// --- Task 7: Integration test for 3-stage pipeline ---
+
+func TestDoContextualSearchWithGraphTraversal(t *testing.T) {
+	client := TestClient(t)
+	ctx := context.Background()
+	ec := client.Ent()
+
+	vol := createTestVolume(t, ctx, ec)
+	book := createTestBook(t, ctx, ec, vol)
+	ch := createTestChapter(t, ctx, ec, book)
+
+	queryEmbedding := makeUnitEmbedding(0)
+
+	// Create verses that are NOT directly searchable by vector (no embedding).
+	v1 := createTestVerse(t, ctx, ec, ch, 1, "I Nephi having been born of goodly parents", "1 Ne. 1:1")
+	v2 := createTestVerse(t, ctx, ec, ch, 2, "Therefore I was taught in the learning of my father", "1 Ne. 1:2")
+
+	// Create a verse group that includes these verses AND has a vector embedding.
+	_, err := ec.VerseGroup.Create().
+		SetText("I Nephi having been born of goodly parents Therefore I was taught").
+		SetStartVerseNumber(1).
+		SetEndVerseNumber(2).
+		SetChapter(ch).
+		SetEmbedding(queryEmbedding).
+		AddVerses(v1, v2).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("creating verse group: %v", err)
+	}
+
+	// Create a TG entry with embedding that links to a verse.
+	tg, err := ec.TopicalGuideEntry.Create().
+		SetName("Faith").
+		SetEmbedding(queryEmbedding).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("creating TG entry: %v", err)
+	}
+
+	v3 := createTestVerse(t, ctx, ec, ch, 3, "Faith is the substance of things hoped for", "Heb. 11:1")
+	_, err = ec.TGVerseRef.Create().
+		SetPhrase("substance of things hoped for").
+		SetTgEntry(tg).
+		SetVerse(v3).
+		Save(ctx)
+	if err != nil {
+		t.Fatalf("creating TG->verse ref: %v", err)
+	}
+
+	// Run the full pipeline.
+	results, err := client.DoContextualSearch(ctx, queryEmbedding)
+	if err != nil {
+		t.Fatalf("DoContextualSearch: %v", err)
+	}
+
+	// Stage 1 should find the verse_group and TG entry (vector hits).
+	// Stage 2 should traverse edges to find individual verses (v1, v2 from verse_group, v3 from TG).
+	// Stage 3 should rank verses higher than verse_groups when distances are close.
+
+	typeSet := make(map[EntityType]bool)
+	for _, r := range results {
+		typeSet[r.EntityType] = true
+	}
+
+	if !typeSet[EntityVerseGroup] {
+		t.Error("missing EntityVerseGroup in results")
+	}
+	if !typeSet[EntityTopicalGuide] {
+		t.Error("missing EntityTopicalGuide in results")
+	}
+	if !typeSet[EntityVerse] {
+		t.Error("missing EntityVerse in pipeline results — graph traversal did not surface individual verses")
+	}
+
+	// Verify verses have correct metadata.
+	for _, r := range results {
+		if r.EntityType == EntityVerse {
+			if r.Metadata.VerseNumber == 0 {
+				t.Error("EntityVerse result missing VerseNumber metadata")
+			}
+			if r.Metadata.Reference == "" {
+				t.Error("EntityVerse result missing Reference metadata")
+			}
+		}
+	}
+}
+
+func TestDoContextualSearchKNNTrimsAfterRanking(t *testing.T) {
+	client := TestClient(t)
+	ctx := context.Background()
+	ec := client.Ent()
+
+	vol := createTestVolume(t, ctx, ec)
+	book := createTestBook(t, ctx, ec, vol)
+	ch := createTestChapter(t, ctx, ec, book)
+
+	queryEmbedding := makeUnitEmbedding(0)
+
+	// Create multiple verse groups with embeddings to generate lots of candidates.
+	for i := range 5 {
+		vg, err := ec.VerseGroup.Create().
+			SetText("verse group text").
+			SetStartVerseNumber(i*3 + 1).
+			SetEndVerseNumber(i*3 + 3).
+			SetChapter(ch).
+			SetEmbedding(queryEmbedding).
+			Save(ctx)
+		if err != nil {
+			t.Fatalf("creating verse group %d: %v", i, err)
+		}
+
+		// Add verses to each group so graph traversal produces more results.
+		for j := 1; j <= 3; j++ {
+			v := createTestVerse(t, ctx, ec, ch, i*3+j, "verse text", fmt.Sprintf("Test 1:%d", i*3+j))
+			err = vg.Update().AddVerses(v).Exec(ctx)
+			if err != nil {
+				t.Fatalf("adding verse to group: %v", err)
+			}
+		}
+	}
+
+	// With kNN=3, final result set should be trimmed.
+	results, err := client.DoContextualSearch(ctx, queryEmbedding, WithKNN(3))
+	if err != nil {
+		t.Fatalf("DoContextualSearch: %v", err)
+	}
+
+	if len(results) > 3 {
+		t.Errorf("expected at most 3 results with WithKNN(3), got %d", len(results))
 	}
 }

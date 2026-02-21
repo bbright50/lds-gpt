@@ -12,6 +12,14 @@ const (
 	EntityBibleDict    EntityType = "bible_dict"
 	EntityIndex        EntityType = "index"
 	EntityJSTPassage   EntityType = "jst_passage"
+	EntityVerse        EntityType = "verse"
+)
+
+// Pipeline constants for graph traversal and heuristic re-ranking.
+const (
+	defaultHopPenalty = 0.05
+	defaultVerseBonus = 0.05
+	defaultGraphLimit = 5
 )
 
 // SearchResult represents a single vector search hit from any of the 6 entity tables.
@@ -41,6 +49,10 @@ type ResultMeta struct {
 	Comprises  string
 	CompareRef string
 	Summary    string
+
+	// Verse fields.
+	VerseNumber int
+	Reference   string
 }
 
 // SortByDistance returns a new slice of results sorted by ascending cosine distance.

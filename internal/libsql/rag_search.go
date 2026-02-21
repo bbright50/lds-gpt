@@ -6,6 +6,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/sync/errgroup"
+
+	"lds-gpt/internal/libsql/generated"
 )
 
 type contextSearchOptions struct {
@@ -25,7 +27,7 @@ func WithKNN(kNN int) ContextSearchOption {
 const defaultSearchLimit = 10
 
 // DoContextualSearch runs parallel vector similarity searches across all 6 entity
-// tables and returns the combined results sorted by cosine distance.
+// tables, expands results via graph traversal, and returns ranked results.
 // The embedding parameter must be pre-computed packed float32 bytes (F32_BLOB).
 func (c *Client) DoContextualSearch(ctx context.Context, embedding []byte, options ...ContextSearchOption) ([]SearchResult, error) {
 	opts := &contextSearchOptions{
@@ -39,6 +41,38 @@ func (c *Client) DoContextualSearch(ctx context.Context, embedding []byte, optio
 		return nil, fmt.Errorf("libsql: embedding must not be empty")
 	}
 
+	if opts.kNN <= 0 {
+		return nil, fmt.Errorf("libsql: kNN must be positive, got %d", opts.kNN)
+	}
+
+	// Stage 1: Parallel vector search across all entity tables.
+	stage1, err := runParallelSearches(ctx, c.Sqlx(), embedding)
+	if err != nil {
+		return nil, fmt.Errorf("libsql: vector search: %w", err)
+	}
+
+	// Stage 2: Graph traversal + deduplication.
+	graphResults, err := graphExpandAndDedup(ctx, c.Ent(), stage1)
+	if err != nil {
+		return nil, fmt.Errorf("libsql: graph expansion: %w", err)
+	}
+
+	// Stage 3: Combine, rank, and trim to kNN.
+	combined := make([]SearchResult, 0, len(stage1)+len(graphResults))
+	combined = append(combined, stage1...)
+	combined = append(combined, graphResults...)
+
+	ranked := rankResults(combined)
+	if len(ranked) > opts.kNN {
+		ranked = ranked[:opts.kNN]
+	}
+
+	return ranked, nil
+}
+
+// runParallelSearches executes vector similarity searches across all 6 entity
+// tables concurrently and returns the combined results.
+func runParallelSearches(ctx context.Context, db *sqlx.DB, embedding []byte) ([]SearchResult, error) {
 	type searchFunc func(ctx context.Context, db *sqlx.DB, embedding []byte, limit int) ([]SearchResult, error)
 
 	searches := []searchFunc{
@@ -55,7 +89,7 @@ func (c *Client) DoContextualSearch(ctx context.Context, embedding []byte, optio
 	g, gctx := errgroup.WithContext(ctx)
 	for _, fn := range searches {
 		g.Go(func() error {
-			results, err := fn(gctx, c.Sqlx(), embedding, defaultSearchLimit)
+			results, err := fn(gctx, db, embedding, defaultSearchLimit)
 			if err != nil {
 				return err
 			}
@@ -69,17 +103,27 @@ func (c *Client) DoContextualSearch(ctx context.Context, embedding []byte, optio
 	}
 	close(resultsCh)
 
-	combined := make([]SearchResult, 0, len(searches)*defaultSearchLimit)
+	stage1 := make([]SearchResult, 0, len(searches)*defaultSearchLimit)
 	for batch := range resultsCh {
-		combined = append(combined, batch...)
+		stage1 = append(stage1, batch...)
 	}
 
-	sortedResults := SortByDistance(combined)
-	if len(sortedResults) > opts.kNN {
-		sortedResults = sortedResults[:opts.kNN]
-	}
+	return stage1, nil
+}
 
-	return sortedResults, nil
+// graphExpandAndDedup performs 1-hop graph traversal from each Stage 1 seed,
+// assigns synthetic distances, and deduplicates against Stage 1 results.
+func graphExpandAndDedup(ctx context.Context, ec *generated.Client, stage1 []SearchResult) ([]SearchResult, error) {
+	var allGraphResults []SearchResult
+	for _, seed := range stage1 {
+		neighbors, err := traverseEdges(ctx, ec, seed, defaultGraphLimit)
+		if err != nil {
+			return nil, fmt.Errorf("libsql: graph traversal: %w", err)
+		}
+		scored := assignSyntheticDistances(neighbors, seed.Distance)
+		allGraphResults = append(allGraphResults, scored...)
+	}
+	return deduplicateResults(stage1, allGraphResults), nil
 }
 
 // verseGroupRow is the sqlx scan target for verse_groups vector search.

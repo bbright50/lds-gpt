@@ -33,7 +33,7 @@ func (a *App) DoContextualSearch(ctx context.Context, query string, options ...l
 
 	embeddingBytes := vec.Float64sToFloat32Bytes(floats)
 
-	results, err := a.libsqlClient.DoContextualSearch(ctx, embeddingBytes)
+	results, err := a.libsqlClient.DoContextualSearch(ctx, embeddingBytes, options...)
 	if err != nil {
 		return nil, fmt.Errorf("app: contextual search: %w", err)
 	}
