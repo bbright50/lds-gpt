@@ -122,9 +122,10 @@ tasks:
       - go run ./cmd/dataloader/ --embed
 
   generate:
-    desc: Generate Ent entities
+    desc: Regenerate the go-ormql FalkorDB client from internal/falkor/schema.graphql
     cmds:
-      - go generate ./internal/libsql/generated
+      - rm -rf internal/falkor/generated
+      - gormql generate --schema internal/falkor/schema.graphql --output internal/falkor/generated --package generated --target falkordb
 
   scrape:all:
     desc: Scrape all standard works (1584 chapters)

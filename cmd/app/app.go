@@ -3,70 +3,57 @@ package main
 import (
 	"context"
 	"fmt"
-	"lds-gpt/cmd/dataloader/config"
-	"lds-gpt/internal/app"
-	"lds-gpt/internal/bedrockembedding"
-	"lds-gpt/internal/libsql"
 	"log/slog"
 	"os"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+
+	"lds-gpt/cmd/dataloader/config"
+	"lds-gpt/internal/app"
+	"lds-gpt/internal/bedrockembedding"
+	"lds-gpt/internal/falkor"
 )
 
-var cfg *config.Config
-
-func init() {
-	var err error
-	cfg, err = config.Load()
-	if err != nil {
-		fmt.Printf("failed to load config: %v", err)
-		os.Exit(1)
-	}
-	err = config.Validate(cfg)
-	if err != nil {
-		fmt.Printf("failed to validate config: %v", err)
-		os.Exit(1)
-	}
-}
-
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := config.Validate(cfg); err != nil {
+		fmt.Printf("failed to validate config: %v\n", err)
+		os.Exit(1)
+	}
 
-	// ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.Background()
 
-	// LibSQL client
-	libsqlClient, err := libsql.NewClient(libsql.Config{
-		Path: cfg.MainDBURL,
+	client, err := falkor.NewClient(falkor.Config{
+		URL:       cfg.FalkorDBURL,
+		GraphName: cfg.FalkorDBGraph,
 	})
 	if err != nil {
-		logger.Error("failed to create libsql client", "error", err)
+		logger.Error("falkor client", "error", err)
 		os.Exit(1)
 	}
-	defer libsqlClient.Close()
+	defer client.Close()
 
-	// AWS embedding client
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(cfg.AWSRegion),
-	)
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
 	if err != nil {
-		logger.Error("failed to load AWS config", "error", err)
+		logger.Error("aws config", "error", err)
 		os.Exit(1)
 	}
-	embeddingClient := bedrockembedding.NewClient(awsCfg)
+	embedClient := bedrockembedding.NewClient(awsCfg)
 
-	// create application
-	app := app.NewApp(libsqlClient, embeddingClient)
+	a := app.NewApp(client, embedClient)
 
-	// Do contextual search
-	results, err := app.DoContextualSearch(context.Background(), "What is faith?", libsql.WithKNN(10))
+	results, err := a.DoContextualSearch(ctx, "What is faith?", falkor.WithKNN(10))
 	if err != nil {
-		logger.Error("failed to do contextual search", "error", err)
+		logger.Error("contextual search", "error", err)
 		os.Exit(1)
 	}
 
-	for _, result := range results {
-		fmt.Printf("(%.3f) %s [%d]: %s\n", result.Distance, result.EntityType, result.ID, result.Text)
+	for _, r := range results {
+		fmt.Printf("(%.3f) %s [%s]: %s\n", r.Distance, r.EntityType, r.ID, r.Text)
 	}
 }

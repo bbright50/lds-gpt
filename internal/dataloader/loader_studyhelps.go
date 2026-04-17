@@ -3,243 +3,182 @@ package dataloader
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"lds-gpt/internal/libsql/generated"
 )
 
-// loadStudyHelps implements Phase 2: create TG, BD, IDX, and JST entity rows.
-// Returns name->ID maps for each entity type and a JSTIndex.
+// Phase 2 — create TopicalGuideEntry / BibleDictEntry / IndexEntry /
+// JSTPassage nodes from the four study-help JSON files. Returns name → node-ID
+// maps (used by Phases 3–4 to connect verses) and a JSTIndex keyed by
+// (bookSlug, chapter). Writes go through the raw FalkorDB handle because
+// each of these node types has a required @vector `embedding` field that
+// Phase 6 backfills via `SET n.embedding = vecf32(...)`.
+
+const studyHelpBatchSize = 500
+
 func (l *Loader) loadStudyHelps(ctx context.Context) (
-	tgMap map[string]int,
-	bdMap map[string]int,
-	idxMap map[string]int,
+	tgMap, bdMap, idxMap map[string]string,
 	jstIndex JSTIndex,
 	err error,
 ) {
-	tx, err := l.ec.Tx(ctx)
-	if err != nil {
-		return nil, nil, nil, JSTIndex{}, fmt.Errorf("starting transaction: %w", err)
-	}
-
-	committed := false
-	defer func() {
-		if !committed {
-			tx.Rollback()
-		}
-	}()
-
-	tgMap, err = l.loadTopicalGuide(ctx, tx)
+	tgMap, err = l.loadTopicalGuide(ctx)
 	if err != nil {
 		return nil, nil, nil, JSTIndex{}, fmt.Errorf("loading topical guide: %w", err)
 	}
 
-	bdMap, err = l.loadBibleDictionary(ctx, tx)
+	bdMap, err = l.loadBibleDictionary(ctx)
 	if err != nil {
 		return nil, nil, nil, JSTIndex{}, fmt.Errorf("loading bible dictionary: %w", err)
 	}
 
-	idxMap, err = l.loadTripleCombIndex(ctx, tx)
+	idxMap, err = l.loadTripleCombIndex(ctx)
 	if err != nil {
 		return nil, nil, nil, JSTIndex{}, fmt.Errorf("loading triple combination index: %w", err)
 	}
 
-	jstIndex, err = l.loadJST(ctx, tx)
+	jstIndex, err = l.loadJST(ctx)
 	if err != nil {
 		return nil, nil, nil, JSTIndex{}, fmt.Errorf("loading JST: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, nil, nil, JSTIndex{}, fmt.Errorf("committing phase 2: %w", err)
-	}
-	committed = true
-
 	return tgMap, bdMap, idxMap, jstIndex, nil
 }
 
-// loadTopicalGuide loads TopicalGuideEntry rows.
-func (l *Loader) loadTopicalGuide(ctx context.Context, tx *generated.Tx) (map[string]int, error) {
-	path := filepath.Join(l.dataDir, "topical-guide.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+func (l *Loader) loadTopicalGuide(ctx context.Context) (map[string]string, error) {
+	tgData := map[string][]TGEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "topical-guide.json", &tgData); err != nil || !ok {
+		return map[string]string{}, err
 	}
 
-	var tgData map[string][]TGEntryJSON
-	if err := json.Unmarshal(data, &tgData); err != nil {
-		return nil, fmt.Errorf("parsing topical guide JSON: %w", err)
-	}
-
-	tgMap := make(map[string]int, len(tgData))
-
-	// Collect all topic names for bulk creation
 	names := make([]string, 0, len(tgData))
 	for name := range tgData {
 		names = append(names, name)
 	}
 
-	// Bulk create in batches to avoid SQLite limits
-	batchSize := 500
-	for i := 0; i < len(names); i += batchSize {
-		end := i + batchSize
+	tgMap := make(map[string]string, len(names))
+	for i := 0; i < len(names); i += studyHelpBatchSize {
+		end := i + studyHelpBatchSize
 		if end > len(names) {
 			end = len(names)
 		}
-		batch := names[i:end]
-
-		builders := make([]*generated.TopicalGuideEntryCreate, len(batch))
-		for j, name := range batch {
-			builders[j] = tx.TopicalGuideEntry.Create().
-				SetName(name)
+		rows := make([]interface{}, 0, end-i)
+		for _, name := range names[i:end] {
+			id := tgNodeID(name)
+			tgMap[name] = id
+			rows = append(rows, map[string]interface{}{"id": id, "name": name})
 		}
-
-		entries, err := tx.TopicalGuideEntry.CreateBulk(builders...).Save(ctx)
-		if err != nil {
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 CREATE (:TopicalGuideEntry {id: r.id, name: r.name})`,
+			map[string]interface{}{"rows": rows}, nil,
+		); err != nil {
 			return nil, fmt.Errorf("bulk creating TG entries: %w", err)
 		}
-
-		for _, e := range entries {
-			tgMap[e.Name] = e.ID
-		}
-		l.stats.TGEntries += len(entries)
+		l.stats.TGEntries += end - i
 	}
 
 	l.logger.Info("loaded topical guide entries", "count", l.stats.TGEntries)
 	return tgMap, nil
 }
 
-// loadBibleDictionary loads BibleDictEntry rows.
-func (l *Loader) loadBibleDictionary(ctx context.Context, tx *generated.Tx) (map[string]int, error) {
-	path := filepath.Join(l.dataDir, "bible-dictionary.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+func (l *Loader) loadBibleDictionary(ctx context.Context) (map[string]string, error) {
+	bdData := map[string]BDEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "bible-dictionary.json", &bdData); err != nil || !ok {
+		return map[string]string{}, err
 	}
 
-	var bdData map[string]BDEntryJSON
-	if err := json.Unmarshal(data, &bdData); err != nil {
-		return nil, fmt.Errorf("parsing bible dictionary JSON: %w", err)
-	}
-
-	bdMap := make(map[string]int, len(bdData))
-
-	// Collect entries for bulk creation
-	type bdItem struct {
-		name string
-		text string
-	}
-	items := make([]bdItem, 0, len(bdData))
+	type item struct{ name, text string }
+	items := make([]item, 0, len(bdData))
 	for name, entry := range bdData {
-		items = append(items, bdItem{name: name, text: entry.Text})
+		items = append(items, item{name: name, text: entry.Text})
 	}
 
-	batchSize := 500
-	for i := 0; i < len(items); i += batchSize {
-		end := i + batchSize
+	bdMap := make(map[string]string, len(items))
+	for i := 0; i < len(items); i += studyHelpBatchSize {
+		end := i + studyHelpBatchSize
 		if end > len(items) {
 			end = len(items)
 		}
-		batch := items[i:end]
-
-		builders := make([]*generated.BibleDictEntryCreate, len(batch))
-		for j, item := range batch {
-			builders[j] = tx.BibleDictEntry.Create().
-				SetName(item.name).
-				SetText(item.text)
+		rows := make([]interface{}, 0, end-i)
+		for _, it := range items[i:end] {
+			id := bdNodeID(it.name)
+			bdMap[it.name] = id
+			rows = append(rows, map[string]interface{}{"id": id, "name": it.name, "text": it.text})
 		}
-
-		entries, err := tx.BibleDictEntry.CreateBulk(builders...).Save(ctx)
-		if err != nil {
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 CREATE (:BibleDictEntry {id: r.id, name: r.name, text: r.text})`,
+			map[string]interface{}{"rows": rows}, nil,
+		); err != nil {
 			return nil, fmt.Errorf("bulk creating BD entries: %w", err)
 		}
-
-		for _, e := range entries {
-			bdMap[e.Name] = e.ID
-		}
-		l.stats.BDEntries += len(entries)
+		l.stats.BDEntries += end - i
 	}
 
 	l.logger.Info("loaded bible dictionary entries", "count", l.stats.BDEntries)
 	return bdMap, nil
 }
 
-// loadTripleCombIndex loads IndexEntry rows.
-func (l *Loader) loadTripleCombIndex(ctx context.Context, tx *generated.Tx) (map[string]int, error) {
-	path := filepath.Join(l.dataDir, "triple-combination-index.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+func (l *Loader) loadTripleCombIndex(ctx context.Context) (map[string]string, error) {
+	idxData := map[string][]IDXEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "triple-combination-index.json", &idxData); err != nil || !ok {
+		return map[string]string{}, err
 	}
-
-	var idxData map[string][]IDXEntryJSON
-	if err := json.Unmarshal(data, &idxData); err != nil {
-		return nil, fmt.Errorf("parsing triple combination index JSON: %w", err)
-	}
-
-	idxMap := make(map[string]int, len(idxData))
 
 	names := make([]string, 0, len(idxData))
 	for name := range idxData {
 		names = append(names, name)
 	}
 
-	batchSize := 500
-	for i := 0; i < len(names); i += batchSize {
-		end := i + batchSize
+	idxMap := make(map[string]string, len(names))
+	for i := 0; i < len(names); i += studyHelpBatchSize {
+		end := i + studyHelpBatchSize
 		if end > len(names) {
 			end = len(names)
 		}
-		batch := names[i:end]
-
-		builders := make([]*generated.IndexEntryCreate, len(batch))
-		for j, name := range batch {
-			builders[j] = tx.IndexEntry.Create().
-				SetName(name)
+		rows := make([]interface{}, 0, end-i)
+		for _, name := range names[i:end] {
+			id := idxNodeID(name)
+			idxMap[name] = id
+			rows = append(rows, map[string]interface{}{"id": id, "name": name})
 		}
-
-		entries, err := tx.IndexEntry.CreateBulk(builders...).Save(ctx)
-		if err != nil {
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 CREATE (:IndexEntry {id: r.id, name: r.name})`,
+			map[string]interface{}{"rows": rows}, nil,
+		); err != nil {
 			return nil, fmt.Errorf("bulk creating IDX entries: %w", err)
 		}
-
-		for _, e := range entries {
-			idxMap[e.Name] = e.ID
-		}
-		l.stats.IDXEntries += len(entries)
+		l.stats.IDXEntries += end - i
 	}
 
 	l.logger.Info("loaded index entries", "count", l.stats.IDXEntries)
 	return idxMap, nil
 }
 
-// loadJST loads JSTPassage rows and builds a JSTIndex.
-func (l *Loader) loadJST(ctx context.Context, tx *generated.Tx) (JSTIndex, error) {
-	path := filepath.Join(l.dataDir, "jst.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return JSTIndex{}, fmt.Errorf("reading %s: %w", path, err)
-	}
-
-	var jstData []JSTChapterJSON
-	if err := json.Unmarshal(data, &jstData); err != nil {
-		return JSTIndex{}, fmt.Errorf("parsing JST JSON: %w", err)
-	}
-
+func (l *Loader) loadJST(ctx context.Context) (JSTIndex, error) {
 	jstIndex := NewJSTIndex()
+	var jstData []JSTChapterJSON
+	if ok, err := l.readOptionalJSON(ctx, "jst.json", &jstData); err != nil || !ok {
+		return jstIndex, err
+	}
+
+	type passageRow struct {
+		id, book, chapter, comprises, compareRef, summary, text string
+	}
+	var rows []passageRow
 
 	for _, ch := range jstData {
 		for _, entry := range ch.Entries {
-			// Concatenate verse texts
-			var textParts []string
+			var parts []string
 			for _, v := range entry.Verses {
-				textParts = append(textParts, v.Text)
+				parts = append(parts, v.Text)
 			}
-			fullText := strings.Join(textParts, " ")
-
+			fullText := strings.Join(parts, " ")
 			if fullText == "" {
 				l.stats.Warn(fmt.Sprintf("JST entry %s %s:%s has no verse text", ch.Book, ch.Chapter, entry.Comprises))
 				continue
@@ -247,7 +186,6 @@ func (l *Loader) loadJST(ctx context.Context, tx *generated.Tx) (JSTIndex, error
 
 			comprises := entry.Comprises
 			if comprises == "" {
-				// Some JST entries (e.g. Exodus 34) have empty comprises; derive from verses
 				if len(entry.Verses) > 0 {
 					comprises = strconv.Itoa(entry.Verses[0].Number)
 					if len(entry.Verses) > 1 {
@@ -259,38 +197,93 @@ func (l *Loader) loadJST(ctx context.Context, tx *generated.Tx) (JSTIndex, error
 				l.stats.Warn(fmt.Sprintf("JST entry %s %s has empty comprises, using %q", ch.Book, ch.Chapter, comprises))
 			}
 
-			passage, err := tx.JSTPassage.Create().
-				SetBook(ch.Book).
-				SetChapter(ch.Chapter).
-				SetComprises(comprises).
-				SetCompareRef(entry.Compare).
-				SetSummary(entry.Summary).
-				SetText(fullText).
-				Save(ctx)
-			if err != nil {
-				return JSTIndex{}, fmt.Errorf("creating JST passage %s %s: %w", ch.Book, ch.Chapter, err)
-			}
-
-			// Index by book slug + chapter
 			bookSlug := l.jstBookToSlug(ch.Book)
-			if bookSlug != "" {
-				jstIndex.Put(bookSlug, ch.Chapter, entry.Comprises, passage.ID)
-			}
+			id := jstNodeID(bookSlug, ch.Chapter, comprises)
+			rows = append(rows, passageRow{
+				id:         id,
+				book:       ch.Book,
+				chapter:    ch.Chapter,
+				comprises:  comprises,
+				compareRef: entry.Compare,
+				summary:    entry.Summary,
+				text:       fullText,
+			})
 
-			l.stats.JSTPassages++
+			if bookSlug != "" {
+				jstIndex.Put(bookSlug, ch.Chapter, entry.Comprises, id)
+			}
 		}
+	}
+
+	for i := 0; i < len(rows); i += studyHelpBatchSize {
+		end := i + studyHelpBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{
+				"id":         r.id,
+				"book":       r.book,
+				"chapter":    r.chapter,
+				"comprises":  r.comprises,
+				"compareRef": r.compareRef,
+				"summary":    r.summary,
+				"text":       r.text,
+			})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 CREATE (:JSTPassage {
+			   id: r.id, book: r.book, chapter: r.chapter, comprises: r.comprises,
+			   compareRef: r.compareRef, summary: r.summary, text: r.text
+			 })`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return jstIndex, fmt.Errorf("bulk creating JST passages: %w", err)
+		}
+		l.stats.JSTPassages += end - i
 	}
 
 	l.logger.Info("loaded JST passages", "count", l.stats.JSTPassages)
 	return jstIndex, nil
 }
 
-// jstBookToSlug converts a JST full book name (e.g. "1 Samuel") to its slug.
+// readOptionalJSON reads <dataDir>/<file> and unmarshals it into target.
+// A missing file is treated as "no data" — returns (false, nil) with a
+// warning so a developer can run Phase 2 incrementally before the study
+// helps have been scraped. Any other error is propagated.
+func (l *Loader) readOptionalJSON(ctx context.Context, file string, target any) (bool, error) {
+	_ = ctx
+	path := filepath.Join(l.dataDir, file)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			l.stats.Warn(fmt.Sprintf("%s not present in %s; skipping", file, l.dataDir))
+			return false, nil
+		}
+		return false, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		return false, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return true, nil
+}
+
 func (l *Loader) jstBookToSlug(book string) string {
-	info, ok := l.bookNames[book]
-	if ok {
+	if info, ok := l.bookNames[book]; ok {
 		return info.Slug
 	}
 	l.stats.Warn(fmt.Sprintf("unknown JST book name: %q", book))
 	return ""
+}
+
+// Deterministic IDs. Names can contain spaces / punctuation; we store them
+// verbatim as Cypher string property values (passed as params, not
+// interpolated), so no escaping is required.
+func tgNodeID(name string) string  { return "tg/" + name }
+func bdNodeID(name string) string  { return "bd/" + name }
+func idxNodeID(name string) string { return "idx/" + name }
+func jstNodeID(bookSlug, chapter, comprises string) string {
+	return "jst/" + bookSlug + "/" + chapter + "/" + comprises
 }

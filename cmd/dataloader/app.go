@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"os"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+
 	"lds-gpt/cmd/dataloader/config"
 	"lds-gpt/internal/bedrockembedding"
 	"lds-gpt/internal/dataloader"
-	"lds-gpt/internal/libsql"
-
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"lds-gpt/internal/falkor"
 )
 
 var cfg *config.Config
@@ -24,8 +24,7 @@ func init() {
 		fmt.Printf("failed to load config: %v", err)
 		os.Exit(1)
 	}
-	err = config.Validate(cfg)
-	if err != nil {
+	if err := config.Validate(cfg); err != nil {
 		fmt.Printf("failed to validate config: %v", err)
 		os.Exit(1)
 	}
@@ -33,58 +32,40 @@ func init() {
 
 func main() {
 	embed := flag.Bool("embed", false, "Run phases 1-5 + phase 6 (embedding generation)")
-	embedOnly := flag.Bool("embed-only", false, "Run phase 6 only (embedding generation against existing DB)")
+	embedOnly := flag.Bool("embed-only", false, "Run phase 6 only (embedding generation against an existing graph)")
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
-	// Only delete/recreate DB for full load (not embed-only)
-	if !*embedOnly {
-		logger.Info("preparing database", "path", cfg.MainDBURL)
-		if err := os.Remove(cfg.MainDBURL); err != nil && !os.IsNotExist(err) {
-			logger.Error("failed to remove existing database", "error", err)
-			os.Exit(1)
-		}
-	}
-
-	if err := libsql.EnsureDatabaseDir(cfg.MainDBURL); err != nil {
-		logger.Error("failed to create database directory", "error", err)
-		os.Exit(1)
-	}
-
-	libsqlClient, err := libsql.NewClient(libsql.Config{
-		Path: cfg.MainDBURL,
+	client, err := falkor.NewClient(falkor.Config{
+		URL:       cfg.FalkorDBURL,
+		GraphName: cfg.FalkorDBGraph,
 	})
 	if err != nil {
-		logger.Error("failed to create libsql client", "error", err)
+		logger.Error("failed to create falkor client", "error", err)
 		os.Exit(1)
 	}
-	defer libsqlClient.Close()
+	defer client.Close()
 
-	// Run migrations (safe for embed-only since migrations are idempotent)
+	// For a full load (not embed-only) destroy any prior graph with this name
+	// so the loader starts from a clean slate, then recreate the vector
+	// indexes. Phase 6 (embed-only) skips this — it operates against an
+	// existing populated graph.
 	if !*embedOnly {
-		logger.Info("running migrations")
-		if err := libsqlClient.Migrate(ctx); err != nil {
-			logger.Error("failed to run migrations", "error", err)
-			os.Exit(1)
+		logger.Info("preparing graph", "url", cfg.FalkorDBURL, "graph", cfg.FalkorDBGraph)
+		if err := client.Raw().Delete(); err != nil {
+			// GRAPH.DELETE returns an error if the graph doesn't exist; that's fine.
+			logger.Warn("graph delete (first run is expected to be a no-op)", "error", err)
 		}
 	}
 
-	// Enable WAL mode for better write performance
-	if _, err := libsqlClient.Sqlx().ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
-		logger.Error("failed to set WAL mode", "error", err)
-		os.Exit(1)
-	}
-	if _, err := libsqlClient.Sqlx().ExecContext(ctx, "PRAGMA synchronous=NORMAL"); err != nil {
-		logger.Error("failed to set synchronous mode", "error", err)
+	logger.Info("running migrations (vector indexes)")
+	if err := client.Migrate(ctx); err != nil {
+		logger.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
 
-	// Build loader options
 	var opts []dataloader.LoaderOption
 	if *embed || *embedOnly {
 		embedClient, err := newEmbedClient(ctx, cfg.AWSRegion)
@@ -95,7 +76,7 @@ func main() {
 		opts = append(opts, dataloader.WithEmbedClient(embedClient))
 	}
 
-	loader := dataloader.New(libsqlClient.Ent(), cfg.DataDir, logger, opts...)
+	loader := dataloader.New(client, cfg.DataDir, logger, opts...)
 
 	if *embedOnly {
 		if err := loader.EmbedOnly(ctx); err != nil {
@@ -117,11 +98,9 @@ func newEmbedClient(ctx context.Context, region string) (bedrockembedding.Client
 	if region != "" {
 		opts = append(opts, awsconfig.WithRegion(region))
 	}
-
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
 	}
-
 	return bedrockembedding.NewClient(awsCfg), nil
 }

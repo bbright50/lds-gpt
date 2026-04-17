@@ -25,8 +25,9 @@ type Config struct {
 	Port     string `mapstructure:"SERVER_PORT"`     // the port to bind the listening server to
 	Hostname string `mapstructure:"SERVER_HOSTNAME"` // the hostname to bind the listening server to
 
-	// main database
-	MainDBURL string `mapstructure:"MAIN_DB_URL"`
+	// FalkorDB connection (Redis URL) and target graph name.
+	FalkorDBURL   string `mapstructure:"FALKORDB_URL"`
+	FalkorDBGraph string `mapstructure:"FALKORDB_GRAPH"`
 
 	// data directory containing scraped scripture JSON files
 	DataDir string `mapstructure:"DATA_DIR"`
@@ -83,8 +84,12 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("ENV must be one of %v", envs)
 	}
 
-	if cfg.MainDBURL == "" {
-		return fmt.Errorf("MAIN_DB_URL is required")
+	if cfg.FalkorDBURL == "" {
+		return fmt.Errorf("FALKORDB_URL is required")
+	}
+
+	if cfg.FalkorDBGraph == "" {
+		return fmt.Errorf("FALKORDB_GRAPH is required")
 	}
 
 	if cfg.DataDir == "" {

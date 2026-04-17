@@ -6,432 +6,282 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"lds-gpt/internal/libsql/generated"
-	"lds-gpt/internal/libsql/generated/bibledictentry"
-	"lds-gpt/internal/libsql/generated/chapter"
-	"lds-gpt/internal/libsql/generated/idxverseref"
-	"lds-gpt/internal/libsql/generated/indexentry"
-	"lds-gpt/internal/libsql/generated/jstpassage"
-	"lds-gpt/internal/libsql/generated/tgverseref"
-	"lds-gpt/internal/libsql/generated/topicalguideentry"
-	"lds-gpt/internal/libsql/generated/versegroup"
-	"lds-gpt/internal/utils/vec"
-
 	"golang.org/x/sync/errgroup"
 )
 
+// Phase 6 — generate Bedrock embeddings for the six embeddable node types
+// and persist them as `vecf32(...)` values on the corresponding `embedding`
+// (or `summaryEmbedding`) property.
+//
+// One worker per node, bounded by `embedConcurrency`. The Bedrock client
+// lives on the Loader (attached via WithEmbedClient); this phase is a no-op
+// when no client is configured — Run() only enters Phase 6 if the client is
+// present; EmbedOnly() errors out up-front.
+
 const (
 	embedConcurrency = 8
-	progressInterval = 500
-	maxTextLen       = 25000
-	maxPhrases       = 20
+	maxTextLen       = 25000 // Titan v2 context-window safety margin
+	maxPhrases       = 20    // cap per TG/IDX composition
 )
 
-// embedAll runs embedding generation for all 6 entity types sequentially.
+type embedTarget struct {
+	id   string
+	text string
+}
+
+// embedAll runs the six per-label embedders sequentially. Each embedder
+// internally parallelises with its own errgroup.
 func (l *Loader) embedAll(ctx context.Context) error {
-	type embedFunc struct {
+	if l.embedClient == nil {
+		return fmt.Errorf("no embed client configured")
+	}
+
+	type phase struct {
 		name string
-		fn   func(context.Context) (int, error)
-		stat *int
+		run  func(context.Context) (int, error)
 	}
-
-	funcs := []embedFunc{
-		{"verse_groups", l.embedVerseGroups, &l.stats.EmbVerseGroups},
-		{"chapters", l.embedChapters, &l.stats.EmbChapters},
-		{"tg_entries", l.embedTGEntries, &l.stats.EmbTGEntries},
-		{"bd_entries", l.embedBDEntries, &l.stats.EmbBDEntries},
-		{"idx_entries", l.embedIDXEntries, &l.stats.EmbIDXEntries},
-		{"jst_passages", l.embedJSTPassages, &l.stats.EmbJSTPassages},
+	phases := []phase{
+		{"verse groups", l.embedVerseGroups},
+		{"chapters", l.embedChapters},
+		{"topical guide", l.embedTGEntries},
+		{"bible dictionary", l.embedBDEntries},
+		{"triple combination index", l.embedIDXEntries},
+		{"JST passages", l.embedJSTPassages},
 	}
-
-	for _, ef := range funcs {
-		count, err := ef.fn(ctx)
+	for _, p := range phases {
+		count, err := p.run(ctx)
 		if err != nil {
-			return fmt.Errorf("embedding %s: %w", ef.name, err)
+			return fmt.Errorf("embedding %s: %w", p.name, err)
 		}
-		*ef.stat = count
-		l.logger.Info("embedded entity type", "type", ef.name, "count", count)
+		l.logger.Info("phase 6 group complete", "group", p.name, "embedded", count)
 	}
-
 	return nil
 }
 
+// --- Per-entity-type embedders ---
+
 func (l *Loader) embedVerseGroups(ctx context.Context) (int, error) {
-	rows, err := l.ec.VerseGroup.Query().
-		Where(versegroup.EmbeddingIsNil()).
-		All(ctx)
+	targets, err := l.fetchTargets(ctx,
+		`MATCH (g:VerseGroup) WHERE g.embedding IS NULL AND g.text IS NOT NULL AND g.text <> ''
+		 RETURN g.id AS id, g.text AS text`)
 	if err != nil {
-		return 0, fmt.Errorf("querying verse groups: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	l.logger.Info("embedding verse groups", "total", len(rows))
-
-	var completed atomic.Int64
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
-
-	for _, row := range rows {
-		g.Go(func() error {
-			text := truncateText(row.Text)
-			emb, err := l.embedClient.EmbedText(gCtx, text)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed verse_group %d: %v", row.ID, err))
-				return nil
-			}
-
-			if err := l.ec.VerseGroup.UpdateOneID(row.ID).
-				SetEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save verse_group embedding %d: %v", row.ID, err))
-				return nil
-			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("verse group embedding progress", "completed", n, "total", len(rows))
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
 		return 0, err
 	}
-
-	return int(completed.Load()), nil
+	return l.runEmbeddingWorkers(ctx, targets, "VerseGroup", "embedding", &l.stats.EmbVerseGroups)
 }
 
 func (l *Loader) embedChapters(ctx context.Context) (int, error) {
-	rows, err := l.ec.Chapter.Query().
-		Where(
-			chapter.SummaryEmbeddingIsNil(),
-			chapter.SummaryNEQ(""),
-		).
-		All(ctx)
+	targets, err := l.fetchTargets(ctx,
+		`MATCH (c:Chapter) WHERE c.summaryEmbedding IS NULL AND c.summary IS NOT NULL AND c.summary <> ''
+		 RETURN c.id AS id, c.summary AS text`)
 	if err != nil {
-		return 0, fmt.Errorf("querying chapters: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	l.logger.Info("embedding chapters", "total", len(rows))
-
-	var completed atomic.Int64
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
-
-	for _, row := range rows {
-		g.Go(func() error {
-			if row.Summary == "" {
-				return nil
-			}
-
-			emb, err := l.embedClient.EmbedText(gCtx, row.Summary)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed chapter %d: %v", row.ID, err))
-				return nil
-			}
-
-			if err := l.ec.Chapter.UpdateOneID(row.ID).
-				SetSummaryEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save chapter embedding %d: %v", row.ID, err))
-				return nil
-			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("chapter embedding progress", "completed", n, "total", len(rows))
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
 		return 0, err
 	}
-
-	return int(completed.Load()), nil
-}
-
-func (l *Loader) embedTGEntries(ctx context.Context) (int, error) {
-	rows, err := l.ec.TopicalGuideEntry.Query().
-		Where(topicalguideentry.EmbeddingIsNil()).
-		All(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("querying TG entries: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	l.logger.Info("embedding TG entries", "total", len(rows))
-
-	var completed atomic.Int64
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
-
-	for _, row := range rows {
-		g.Go(func() error {
-			text, err := l.composeTGEmbedText(gCtx, row.ID, row.Name)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("compose TG text %d: %v", row.ID, err))
-				text = row.Name
-			}
-
-			emb, err := l.embedClient.EmbedText(gCtx, text)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed tg_entry %d: %v", row.ID, err))
-				return nil
-			}
-
-			if err := l.ec.TopicalGuideEntry.UpdateOneID(row.ID).
-				SetEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save tg_entry embedding %d: %v", row.ID, err))
-				return nil
-			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("TG entry embedding progress", "completed", n, "total", len(rows))
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return 0, err
-	}
-
-	return int(completed.Load()), nil
+	return l.runEmbeddingWorkers(ctx, targets, "Chapter", "summaryEmbedding", &l.stats.EmbChapters)
 }
 
 func (l *Loader) embedBDEntries(ctx context.Context) (int, error) {
-	rows, err := l.ec.BibleDictEntry.Query().
-		Where(bibledictentry.EmbeddingIsNil()).
-		All(ctx)
+	targets, err := l.fetchTargets(ctx,
+		`MATCH (b:BibleDictEntry) WHERE b.embedding IS NULL AND b.text IS NOT NULL AND b.text <> ''
+		 RETURN b.id AS id, b.text AS text`)
 	if err != nil {
-		return 0, fmt.Errorf("querying BD entries: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	l.logger.Info("embedding BD entries", "total", len(rows))
-
-	var completed atomic.Int64
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
-
-	for _, row := range rows {
-		g.Go(func() error {
-			text := truncateText(row.Text)
-			emb, err := l.embedClient.EmbedText(gCtx, text)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed bd_entry %d: %v", row.ID, err))
-				return nil
-			}
-
-			if err := l.ec.BibleDictEntry.UpdateOneID(row.ID).
-				SetEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save bd_entry embedding %d: %v", row.ID, err))
-				return nil
-			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("BD entry embedding progress", "completed", n, "total", len(rows))
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
 		return 0, err
 	}
-
-	return int(completed.Load()), nil
-}
-
-func (l *Loader) embedIDXEntries(ctx context.Context) (int, error) {
-	rows, err := l.ec.IndexEntry.Query().
-		Where(indexentry.EmbeddingIsNil()).
-		All(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("querying IDX entries: %w", err)
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	l.logger.Info("embedding IDX entries", "total", len(rows))
-
-	var completed atomic.Int64
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
-
-	for _, row := range rows {
-		g.Go(func() error {
-			text, err := l.composeIDXEmbedText(gCtx, row.ID, row.Name)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("compose IDX text %d: %v", row.ID, err))
-				text = row.Name
-			}
-
-			emb, err := l.embedClient.EmbedText(gCtx, text)
-			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed idx_entry %d: %v", row.ID, err))
-				return nil
-			}
-
-			if err := l.ec.IndexEntry.UpdateOneID(row.ID).
-				SetEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save idx_entry embedding %d: %v", row.ID, err))
-				return nil
-			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("IDX entry embedding progress", "completed", n, "total", len(rows))
-			}
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return 0, err
-	}
-
-	return int(completed.Load()), nil
+	return l.runEmbeddingWorkers(ctx, targets, "BibleDictEntry", "embedding", &l.stats.EmbBDEntries)
 }
 
 func (l *Loader) embedJSTPassages(ctx context.Context) (int, error) {
-	rows, err := l.ec.JSTPassage.Query().
-		Where(jstpassage.EmbeddingIsNil()).
-		All(ctx)
+	// Prefer "summary + text" when summary is non-empty; otherwise just text.
+	targets, err := l.fetchTargets(ctx,
+		`MATCH (j:JSTPassage)
+		 WHERE j.embedding IS NULL AND j.text IS NOT NULL AND j.text <> ''
+		 RETURN j.id AS id,
+		        CASE WHEN j.summary IS NULL OR j.summary = '' THEN j.text
+		             ELSE j.summary + ' ' + j.text END AS text`)
 	if err != nil {
-		return 0, fmt.Errorf("querying JST passages: %w", err)
+		return 0, err
+	}
+	return l.runEmbeddingWorkers(ctx, targets, "JSTPassage", "embedding", &l.stats.EmbJSTPassages)
+}
+
+// TG and IDX have no free-text body in the schema — their embedding input
+// is composed from the entry's name plus up to `maxPhrases` phrases pulled
+// off their *_VERSE_REF edges. The composition is a single Cypher query
+// with OPTIONAL MATCH + collect.
+func (l *Loader) embedTGEntries(ctx context.Context) (int, error) {
+	return l.embedNameWithPhrases(ctx,
+		"TopicalGuideEntry", "TG_VERSE_REF", "embedding", &l.stats.EmbTGEntries,
+	)
+}
+
+func (l *Loader) embedIDXEntries(ctx context.Context) (int, error) {
+	return l.embedNameWithPhrases(ctx,
+		"IndexEntry", "IDX_VERSE_REF", "embedding", &l.stats.EmbIDXEntries,
+	)
+}
+
+func (l *Loader) embedNameWithPhrases(
+	ctx context.Context,
+	label, relType, embeddingProp string,
+	counter *int,
+) (int, error) {
+	query := fmt.Sprintf(
+		`MATCH (n:%s) WHERE n.%s IS NULL
+		 OPTIONAL MATCH (n)-[r:%s]->(:Verse) WHERE r.phrase IS NOT NULL AND r.phrase <> ''
+		 WITH n, collect(r.phrase) AS phrases
+		 RETURN n.id AS id, n.name AS name, phrases`,
+		label, embeddingProp, relType,
+	)
+	res, err := l.fc.Raw().Query(query, nil, nil)
+	if err != nil {
+		return 0, fmt.Errorf("querying %s targets: %w", label, err)
 	}
 
-	if len(rows) == 0 {
+	var targets []embedTarget
+	for res.Next() {
+		rec := res.Record()
+		id, _ := rec.Get("id")
+		name, _ := rec.Get("name")
+		phrasesVal, _ := rec.Get("phrases")
+
+		idStr, _ := id.(string)
+		nameStr, _ := name.(string)
+		if idStr == "" {
+			continue
+		}
+		text := composeTextFromPhrases(nameStr, toStringSlice(phrasesVal))
+		if text == "" {
+			continue
+		}
+		targets = append(targets, embedTarget{id: idStr, text: text})
+	}
+	return l.runEmbeddingWorkers(ctx, targets, label, embeddingProp, counter)
+}
+
+// --- Shared plumbing ---
+
+// fetchTargets runs a Cypher query with two returned columns (`id`, `text`)
+// and materialises them into a slice of embedTargets.
+func (l *Loader) fetchTargets(ctx context.Context, query string) ([]embedTarget, error) {
+	_ = ctx
+	res, err := l.fc.Raw().Query(query, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("querying targets: %w", err)
+	}
+	var out []embedTarget
+	for res.Next() {
+		rec := res.Record()
+		id, _ := rec.Get("id")
+		text, _ := rec.Get("text")
+		idStr, _ := id.(string)
+		textStr, _ := text.(string)
+		if idStr == "" || textStr == "" {
+			continue
+		}
+		out = append(out, embedTarget{id: idStr, text: textStr})
+	}
+	return out, nil
+}
+
+// runEmbeddingWorkers embeds every target in parallel (bounded by
+// embedConcurrency) and issues a `SET n.<prop> = vecf32($vec)` per result.
+// Per-row failures are logged as warnings — one Bedrock failure does not
+// abort the whole phase, matching the original LibSQL behavior.
+func (l *Loader) runEmbeddingWorkers(
+	ctx context.Context,
+	targets []embedTarget,
+	label, embeddingProp string,
+	counter *int,
+) (int, error) {
+	if len(targets) == 0 {
 		return 0, nil
 	}
-
-	l.logger.Info("embedding JST passages", "total", len(rows))
-
-	var completed atomic.Int64
+	var written int64
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(embedConcurrency)
 
-	for _, row := range rows {
+	for _, tgt := range targets {
+		tgt := tgt
 		g.Go(func() error {
-			text := row.Text
-			if row.Summary != "" {
-				text = row.Summary + " " + text
-			}
-			text = truncateText(text)
-
-			emb, err := l.embedClient.EmbedText(gCtx, text)
+			text := truncate(tgt.text, maxTextLen)
+			embedding, err := l.embedClient.EmbedText(gCtx, text)
 			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embed jst_passage %d: %v", row.ID, err))
+				l.stats.Warn(fmt.Sprintf("embedding %s %s: %v", label, tgt.id, err))
 				return nil
 			}
-
-			if err := l.ec.JSTPassage.UpdateOneID(row.ID).
-				SetEmbedding(vec.Float64sToFloat32Bytes(emb)).
-				Exec(gCtx); err != nil {
-				l.stats.Warn(fmt.Sprintf("save jst_passage embedding %d: %v", row.ID, err))
+			if err := l.writeEmbedding(gCtx, label, tgt.id, embeddingProp, embedding); err != nil {
+				l.stats.Warn(fmt.Sprintf("writing embedding for %s %s: %v", label, tgt.id, err))
 				return nil
 			}
-
-			n := completed.Add(1)
-			if n%progressInterval == 0 {
-				l.logger.Info("JST passage embedding progress", "completed", n, "total", len(rows))
-			}
+			atomic.AddInt64(&written, 1)
 			return nil
 		})
 	}
-
 	if err := g.Wait(); err != nil {
 		return 0, err
 	}
-
-	return int(completed.Load()), nil
+	*counter += int(written)
+	return int(written), nil
 }
 
-// composeTGEmbedText builds "{name}. {phrase1}; {phrase2}; ..." for a TG entry.
-func (l *Loader) composeTGEmbedText(ctx context.Context, entryID int, name string) (string, error) {
-	refs, err := l.ec.TGVerseRef.Query().
-		Where(tgverseref.TgEntryID(entryID)).
-		All(ctx)
-	if err != nil {
-		return "", fmt.Errorf("querying TG verse refs: %w", err)
+func (l *Loader) writeEmbedding(ctx context.Context, label, id, prop string, embedding []float64) error {
+	_ = ctx
+	vec := make([]interface{}, len(embedding))
+	for i, x := range embedding {
+		vec[i] = x
 	}
-
-	phrases := collectPhrases(refs, func(r *generated.TGVerseRef) string { return r.Phrase })
-	if len(phrases) == 0 {
-		return name, nil
+	query := fmt.Sprintf(
+		`MATCH (n:%s {id: $id})
+		 SET n.%s = vecf32($vec)`,
+		label, prop,
+	)
+	if _, err := l.fc.Raw().Query(query, map[string]interface{}{
+		"id": id, "vec": vec,
+	}, nil); err != nil {
+		return err
 	}
-
-	return name + ". " + strings.Join(phrases, "; "), nil
+	return nil
 }
 
-// composeIDXEmbedText builds "{name}. {phrase1}; {phrase2}; ..." for an IDX entry.
-func (l *Loader) composeIDXEmbedText(ctx context.Context, entryID int, name string) (string, error) {
-	refs, err := l.ec.IDXVerseRef.Query().
-		Where(idxverseref.IndexEntryID(entryID)).
-		All(ctx)
-	if err != nil {
-		return "", fmt.Errorf("querying IDX verse refs: %w", err)
-	}
+// --- Text helpers ---
 
-	phrases := collectPhrases(refs, func(r *generated.IDXVerseRef) string { return r.Phrase })
-	if len(phrases) == 0 {
-		return name, nil
-	}
-
-	return name + ". " + strings.Join(phrases, "; "), nil
-}
-
-// collectPhrases extracts unique, non-empty phrases from ref rows, up to maxPhrases.
-func collectPhrases[T any](refs []T, getPhrase func(T) string) []string {
-	seen := make(map[string]struct{}, maxPhrases)
-	phrases := make([]string, 0, maxPhrases)
-
-	for _, ref := range refs {
-		if len(phrases) >= maxPhrases {
-			break
-		}
-		p := strings.TrimSpace(getPhrase(ref))
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		phrases = append(phrases, p)
-	}
-
-	return phrases
-}
-
-// truncateText limits text to maxTextLen characters to stay within Titan's token limit.
-func truncateText(s string) string {
-	if len(s) <= maxTextLen {
+func truncate(s string, max int) string {
+	if len(s) <= max {
 		return s
 	}
-	return s[:maxTextLen]
+	return s[:max]
+}
+
+func composeTextFromPhrases(name string, phrases []string) string {
+	name = strings.TrimSpace(name)
+	if name == "" && len(phrases) == 0 {
+		return ""
+	}
+	if len(phrases) == 0 {
+		return name
+	}
+	limit := len(phrases)
+	if limit > maxPhrases {
+		limit = maxPhrases
+	}
+	return name + ". " + strings.Join(phrases[:limit], "; ")
+}
+
+// toStringSlice coerces FalkorDB's `LIST<STRING>` return into []string. The
+// underlying value is []interface{} of strings.
+func toStringSlice(v any) []string {
+	if v == nil {
+		return nil
+	}
+	xs, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if s, ok := x.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -9,253 +9,264 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"lds-gpt/internal/libsql/generated"
-	"lds-gpt/internal/libsql/schema"
 )
 
-// loadScriptures implements Phase 1: create volumes, books, chapters, and verses.
-// Returns a VerseIndex for O(1) lookups and a map of volume abbreviation -> DB ID.
-func (l *Loader) loadScriptures(ctx context.Context) (VerseIndex, map[string]int, error) {
+// Phase 1 — create Volume/Book/Chapter/Verse nodes and structural
+// relationships. Writes go through the raw FalkorDB handle because
+// Chapter.summaryEmbedding is an @vector non-null in the GraphQL schema and
+// embeddings do not exist yet at this phase. Phase 6 backfills embeddings
+// via `SET n.summaryEmbedding = vecf32(...)` — see loader_embeddings.go.
+//
+// IDs are deterministic strings (e.g. "v/ot/gen/1/5") so Phases 3–5 can
+// build relationships without round-tripping FalkorDB for a MATCH...RETURN id.
+
+// loadScriptures implements Phase 1.
+func (l *Loader) loadScriptures(ctx context.Context) (VerseIndex, error) {
 	verseIndex := NewVerseIndex()
-	volumeIDs := make(map[string]int, 5)
+	graph := l.fc.Raw()
 
-	tx, err := l.ec.Tx(ctx)
-	if err != nil {
-		return verseIndex, nil, fmt.Errorf("starting transaction: %w", err)
+	// Volumes: one round-trip for all five.
+	volRows := make([]interface{}, 0, len(volumeAbbreviations))
+	for _, abbrev := range volumeAbbreviations {
+		volRows = append(volRows, map[string]interface{}{
+			"id":   volumeNodeID(abbrev),
+			"name": volumeDisplayNames[abbrev],
+			"abbr": abbrev,
+		})
 	}
-
-	committed := false
-	defer func() {
-		if !committed {
-			tx.Rollback()
-		}
-	}()
-
-	// Create volumes
-	for i, volAbbrev := range volumeAbbreviations {
-		displayName := volumeDisplayNames[volAbbrev]
-		vol, err := tx.Volume.Create().
-			SetName(displayName).
-			SetAbbreviation(volAbbrev).
-			Save(ctx)
-		if err != nil {
-			return verseIndex, nil, fmt.Errorf("creating volume %s: %w", volAbbrev, err)
-		}
-		volumeIDs[volAbbrev] = vol.ID
-		l.stats.Volumes++
-		_ = i
+	if _, err := graph.Query(
+		`UNWIND $rows AS r
+		 CREATE (:Volume {id: r.id, name: r.name, abbreviation: r.abbr})`,
+		map[string]interface{}{"rows": volRows}, nil,
+	); err != nil {
+		return verseIndex, fmt.Errorf("creating volumes: %w", err)
 	}
+	l.stats.Volumes = len(volRows)
 
-	// Create books, chapters, and verses for each volume
 	for _, volAbbrev := range volumeAbbreviations {
-		volID := volumeIDs[volAbbrev]
 		volDir := filepath.Join(l.dataDir, volAbbrev)
-
+		if _, err := os.Stat(volDir); os.IsNotExist(err) {
+			l.stats.Warn(fmt.Sprintf("volume directory %s not present under %s; skipping", volAbbrev, l.dataDir))
+			continue
+		}
 		bookSlugs, err := listBookSlugs(volDir)
 		if err != nil {
-			return verseIndex, nil, fmt.Errorf("listing books for %s: %w", volAbbrev, err)
+			return verseIndex, fmt.Errorf("listing books for %s: %w", volAbbrev, err)
 		}
 
 		for _, bookSlug := range bookSlugs {
 			bookDir := filepath.Join(volDir, bookSlug)
 			chapterFiles, err := listChapterFiles(bookDir)
 			if err != nil {
-				return verseIndex, nil, fmt.Errorf("listing chapters for %s/%s: %w", volAbbrev, bookSlug, err)
+				return verseIndex, fmt.Errorf("listing chapters for %s/%s: %w", volAbbrev, bookSlug, err)
 			}
 			if len(chapterFiles) == 0 {
 				continue
 			}
 
-			// Read first chapter to get book display name
 			firstChapter, err := readChapterJSON(filepath.Join(bookDir, chapterFiles[0]))
 			if err != nil {
-				return verseIndex, nil, fmt.Errorf("reading first chapter of %s/%s: %w", volAbbrev, bookSlug, err)
+				return verseIndex, fmt.Errorf("reading first chapter of %s/%s: %w", volAbbrev, bookSlug, err)
 			}
 
 			bookName := l.resolveBookName(firstChapter.Book, volAbbrev, bookSlug)
-			urlPath := volAbbrev + "/" + bookSlug
-
-			book, err := tx.Book.Create().
-				SetName(bookName).
-				SetSlug(bookSlug).
-				SetURLPath(urlPath).
-				SetVolumeID(volID).
-				Save(ctx)
-			if err != nil {
-				return verseIndex, nil, fmt.Errorf("creating book %s/%s: %w", volAbbrev, bookSlug, err)
+			if err := l.createBook(ctx, volAbbrev, bookSlug, bookName); err != nil {
+				return verseIndex, err
 			}
 			l.stats.Books++
 
-			// Load chapters and verses
 			for _, chFile := range chapterFiles {
 				chPath := filepath.Join(bookDir, chFile)
 				chJSON, err := readChapterJSON(chPath)
 				if err != nil {
-					return verseIndex, nil, fmt.Errorf("reading %s: %w", chPath, err)
+					return verseIndex, fmt.Errorf("reading %s: %w", chPath, err)
 				}
-
-				err = l.loadChapter(ctx, tx, book.ID, volAbbrev, bookSlug, chJSON, &verseIndex)
-				if err != nil {
-					return verseIndex, nil, fmt.Errorf("loading chapter %s/%s/%d: %w",
+				if err := l.loadChapter(ctx, volAbbrev, bookSlug, chJSON, &verseIndex); err != nil {
+					return verseIndex, fmt.Errorf("loading chapter %s/%s/%d: %w",
 						volAbbrev, bookSlug, chJSON.Chapter, err)
 				}
 			}
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return verseIndex, nil, fmt.Errorf("committing phase 1: %w", err)
-	}
-	committed = true
-
-	return verseIndex, volumeIDs, nil
+	return verseIndex, nil
 }
 
-// loadChapter creates a Chapter and its Verses.
+func (l *Loader) createBook(ctx context.Context, volAbbrev, bookSlug, bookName string) error {
+	_, err := l.fc.Raw().Query(
+		`MATCH (vol:Volume {id: $volId})
+		 CREATE (b:Book {id: $id, name: $name, slug: $slug, urlPath: $url})
+		 CREATE (vol)-[:CONTAINS]->(b)`,
+		map[string]interface{}{
+			"volId": volumeNodeID(volAbbrev),
+			"id":    bookNodeID(volAbbrev, bookSlug),
+			"name":  bookName,
+			"slug":  bookSlug,
+			"url":   volAbbrev + "/" + bookSlug,
+		}, nil,
+	)
+	_ = ctx
+	if err != nil {
+		return fmt.Errorf("creating book %s/%s: %w", volAbbrev, bookSlug, err)
+	}
+	return nil
+}
+
 func (l *Loader) loadChapter(
 	ctx context.Context,
-	tx *generated.Tx,
-	bookID int,
 	volume, slug string,
 	ch ChapterJSON,
 	verseIndex *VerseIndex,
 ) error {
-	chapterBuilder := tx.Chapter.Create().
-		SetNumber(ch.Chapter).
-		SetBookID(bookID)
+	chapterID := chapterNodeID(volume, slug, ch.Chapter)
 
+	// Create the chapter node + CONTAINS edge from its book. Without a
+	// summaryEmbedding yet, Phase 6 fills it in via `SET`.
+	chapterProps := map[string]interface{}{
+		"id":     chapterID,
+		"number": ch.Chapter,
+		"bookId": bookNodeID(volume, slug),
+	}
+	q := `MATCH (b:Book {id: $bookId})
+	       CREATE (c:Chapter {id: $id, number: $number`
 	if ch.Summary != "" {
-		chapterBuilder.SetSummary(ch.Summary)
+		chapterProps["summary"] = ch.Summary
+		q += `, summary: $summary`
 	}
 	if ch.URL != "" {
-		chapterBuilder.SetURL(ch.URL)
+		chapterProps["url"] = ch.URL
+		q += `, url: $url`
 	}
-
-	chapter, err := chapterBuilder.Save(ctx)
-	if err != nil {
+	q += `})
+	      CREATE (b)-[:CONTAINS]->(c)`
+	if _, err := l.fc.Raw().Query(q, chapterProps, nil); err != nil {
 		return fmt.Errorf("creating chapter %d: %w", ch.Chapter, err)
 	}
 	l.stats.Chapters++
-
 	if l.stats.Chapters%100 == 0 {
 		l.logger.Info("progress", "chapters", l.stats.Chapters, "verses", l.stats.Verses)
 	}
 
-	// Create verses (bulk create for performance)
-	builders := make([]*generated.VerseCreate, 0, len(ch.Verses))
+	// Bulk-create verses for this chapter in one UNWIND round-trip.
+	abbrev := l.slugMap[volume+"/"+slug]
+	verseRows := make([]interface{}, 0, len(ch.Verses))
 	for _, v := range ch.Verses {
-		abbrev := l.slugMap[volume+"/"+slug]
-		reference := fmt.Sprintf("%s %d:%d", abbrev, ch.Chapter, v.Number)
-
-		vb := tx.Verse.Create().
-			SetNumber(v.Number).
-			SetText(v.Text).
-			SetReference(reference).
-			SetChapterID(chapter.ID)
-
-		// Extract inline footnotes (trn, or, ie)
-		trnNotes, orNotes, ieNotes := extractInlineFootnotes(ch.Footnotes, v.Number)
-		if len(trnNotes) > 0 {
-			vb.SetTranslationNotes(trnNotes)
+		id := VerseNodeID(volume, slug, ch.Chapter, v.Number)
+		row := map[string]interface{}{
+			"id":     id,
+			"number": v.Number,
+			"text":   v.Text,
+			"ref":    fmt.Sprintf("%s %d:%d", abbrev, ch.Chapter, v.Number),
 		}
-		if len(orNotes) > 0 {
-			vb.SetAlternateReadings(orNotes)
+		trn, or, ie := extractInlineFootnotes(ch.Footnotes, v.Number)
+		if len(trn) > 0 {
+			if b, err := json.Marshal(trn); err == nil {
+				row["translationNotes"] = string(b)
+			}
 		}
-		if len(ieNotes) > 0 {
-			vb.SetExplanatoryNotes(ieNotes)
+		if len(or) > 0 {
+			if b, err := json.Marshal(or); err == nil {
+				row["alternateReadings"] = string(b)
+			}
 		}
-
-		builders = append(builders, vb)
+		if len(ie) > 0 {
+			if b, err := json.Marshal(ie); err == nil {
+				row["explanatoryNotes"] = string(b)
+			}
+		}
+		verseRows = append(verseRows, row)
+		verseIndex.Put(volume, slug, ch.Chapter, v.Number, id)
 	}
 
-	verses, err := tx.Verse.CreateBulk(builders...).Save(ctx)
-	if err != nil {
+	if _, err := l.fc.Raw().Query(
+		`MATCH (c:Chapter {id: $chapterId})
+		 UNWIND $rows AS r
+		 CREATE (v:Verse {
+		   id: r.id,
+		   number: r.number,
+		   text: r.text,
+		   reference: r.ref,
+		   translationNotes:  coalesce(r.translationNotes,  ''),
+		   alternateReadings: coalesce(r.alternateReadings, ''),
+		   explanatoryNotes:  coalesce(r.explanatoryNotes,  '')
+		 })
+		 CREATE (c)-[:HAS_VERSE]->(v)`,
+		map[string]interface{}{"chapterId": chapterID, "rows": verseRows},
+		nil,
+	); err != nil {
 		return fmt.Errorf("bulk creating verses for chapter %d: %w", ch.Chapter, err)
 	}
 
-	// Index the verses
-	for i, v := range verses {
-		verseNum := ch.Verses[i].Number
-		verseIndex.Put(volume, slug, ch.Chapter, verseNum, v.ID)
-	}
-	l.stats.Verses += len(verses)
-
+	l.stats.Verses += len(verseRows)
+	_ = ctx
 	return nil
 }
 
-// resolveBookName determines the display name for a book.
-func (l *Loader) resolveBookName(jsonBookName, volume, slug string) string {
-	// Use the JSON book field if it's non-empty and meaningful
-	if jsonBookName != "" {
-		return jsonBookName
-	}
-
-	// Try the display name map
-	key := volume + "/" + slug
-	abbrev, ok := l.slugMap[key]
-	if ok {
-		return abbrev
-	}
-
-	// Fallback to slug
-	return slug
+// InlineFootnote types (translation / alternate-reading / explanatory) —
+// JSON-serialized onto the Verse node. The Ent schema had three dedicated
+// Go types for these; in FalkorDB they live as JSON strings on a single
+// property per kind, so the storage layer stays simple.
+type inlineTrnNote struct {
+	Marker     string `json:"marker"`
+	HebrewText string `json:"hebrew_text,omitempty"`
+}
+type inlineOrNote struct {
+	Marker string `json:"marker"`
+	Text   string `json:"text,omitempty"`
+}
+type inlineIeNote struct {
+	Marker string `json:"marker"`
+	Text   string `json:"text,omitempty"`
 }
 
-// extractInlineFootnotes extracts trn, or, and ie footnotes for a specific verse.
 func extractInlineFootnotes(
 	footnotes map[string]FootnoteJSON,
 	verseNum int,
-) ([]schema.TranslationNote, []schema.AlternateReading, []schema.ExplanatoryNote) {
-	var trn []schema.TranslationNote
-	var or []schema.AlternateReading
-	var ie []schema.ExplanatoryNote
+) ([]inlineTrnNote, []inlineOrNote, []inlineIeNote) {
+	var trn []inlineTrnNote
+	var or []inlineOrNote
+	var ie []inlineIeNote
 
 	prefix := strconv.Itoa(verseNum)
-
 	for key, fn := range footnotes {
-		// Key must start with the verse number
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
-		// Extract marker (the letter after the verse number)
 		marker := strings.TrimPrefix(key, prefix)
 		if marker == "" {
 			continue
 		}
-
-		categories := strings.Split(fn.Category, ",")
-		for _, cat := range categories {
+		for _, cat := range strings.Split(fn.Category, ",") {
 			switch strings.TrimSpace(cat) {
 			case "trn":
-				trn = append(trn, schema.TranslationNote{
-					Marker:     marker,
-					HebrewText: fn.Text,
-				})
+				trn = append(trn, inlineTrnNote{Marker: marker, HebrewText: fn.Text})
 			case "or":
-				or = append(or, schema.AlternateReading{
-					Marker: marker,
-					Text:   fn.Text,
-				})
+				or = append(or, inlineOrNote{Marker: marker, Text: fn.Text})
 			case "ie":
-				ie = append(ie, schema.ExplanatoryNote{
-					Marker: marker,
-					Text:   fn.Text,
-				})
+				ie = append(ie, inlineIeNote{Marker: marker, Text: fn.Text})
 			}
 		}
 	}
-
 	return trn, or, ie
 }
 
-// listBookSlugs lists subdirectories (book slugs) in a volume directory, sorted.
+// --- Filesystem helpers (unchanged from the LibSQL implementation) ---
+
+func (l *Loader) resolveBookName(jsonBookName, volume, slug string) string {
+	if jsonBookName != "" {
+		return jsonBookName
+	}
+	if abbrev, ok := l.slugMap[volume+"/"+slug]; ok {
+		return abbrev
+	}
+	return slug
+}
+
 func listBookSlugs(volDir string) ([]string, error) {
 	entries, err := os.ReadDir(volDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", volDir, err)
 	}
-
 	var slugs []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -266,51 +277,45 @@ func listBookSlugs(volDir string) ([]string, error) {
 	return slugs, nil
 }
 
-// listChapterFiles lists JSON chapter files in a book directory, sorted by chapter number.
 func listChapterFiles(bookDir string) ([]string, error) {
 	entries, err := os.ReadDir(bookDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", bookDir, err)
 	}
-
 	var files []string
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
 			files = append(files, e.Name())
 		}
 	}
-
-	// Sort by chapter number
 	sort.Slice(files, func(i, j int) bool {
-		ni := chapterNumFromFilename(files[i])
-		nj := chapterNumFromFilename(files[j])
-		return ni < nj
+		return chapterNumFromFilename(files[i]) < chapterNumFromFilename(files[j])
 	})
-
 	return files, nil
 }
 
-// chapterNumFromFilename extracts the chapter number from "1.json" -> 1.
 func chapterNumFromFilename(name string) int {
-	numStr := strings.TrimSuffix(name, ".json")
-	n, err := strconv.Atoi(numStr)
+	n, err := strconv.Atoi(strings.TrimSuffix(name, ".json"))
 	if err != nil {
 		return 0
 	}
 	return n
 }
 
-// readChapterJSON reads and parses a chapter JSON file.
 func readChapterJSON(path string) (ChapterJSON, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ChapterJSON{}, fmt.Errorf("reading file %s: %w", path, err)
 	}
-
 	var ch ChapterJSON
 	if err := json.Unmarshal(data, &ch); err != nil {
 		return ChapterJSON{}, fmt.Errorf("parsing JSON %s: %w", path, err)
 	}
-
 	return ch, nil
 }
+
+// --- Deterministic FalkorDB node IDs ---
+
+func volumeNodeID(abbrev string) string            { return "vol/" + abbrev }
+func bookNodeID(volAbbrev, slug string) string     { return "book/" + volAbbrev + "/" + slug }
+func chapterNodeID(vol, slug string, ch int) string { return "ch/" + vol + "/" + slug + "/" + strconv.Itoa(ch) }

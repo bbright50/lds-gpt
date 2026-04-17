@@ -248,8 +248,8 @@ func TestRefParser_BookInheritance(t *testing.T) {
 func TestVerseIndex(t *testing.T) {
 	vi := NewVerseIndex()
 
-	vi.Put("ot", "gen", 1, 1, 42)
-	vi.Put("bofm", "1-ne", 3, 7, 99)
+	vi.Put("ot", "gen", 1, 1, "v/ot/gen/1/1")
+	vi.Put("bofm", "1-ne", 3, 7, "v/bofm/1-ne/3/7")
 
 	tests := []struct {
 		name    string
@@ -257,19 +257,19 @@ func TestVerseIndex(t *testing.T) {
 		slug    string
 		chapter int
 		verse   int
-		wantID  int
+		wantID  string
 		wantOK  bool
 	}{
-		{"found gen 1:1", "ot", "gen", 1, 1, 42, true},
-		{"found 1 ne 3:7", "bofm", "1-ne", 3, 7, 99, true},
-		{"not found", "ot", "gen", 1, 2, 0, false},
+		{"found gen 1:1", "ot", "gen", 1, 1, "v/ot/gen/1/1", true},
+		{"found 1 ne 3:7", "bofm", "1-ne", 3, 7, "v/bofm/1-ne/3/7", true},
+		{"not found", "ot", "gen", 1, 2, "", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			id, ok := vi.Get(tt.volume, tt.slug, tt.chapter, tt.verse)
 			if ok != tt.wantOK || id != tt.wantID {
-				t.Errorf("Get(%s/%s/%d/%d) = (%d, %v), want (%d, %v)",
+				t.Errorf("Get(%s/%s/%d/%d) = (%q, %v), want (%q, %v)",
 					tt.volume, tt.slug, tt.chapter, tt.verse,
 					id, ok, tt.wantID, tt.wantOK)
 			}

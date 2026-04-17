@@ -7,76 +7,66 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"lds-gpt/internal/bedrockembedding/mocks"
-	"lds-gpt/internal/libsql"
-	"lds-gpt/internal/utils/vec"
+	"lds-gpt/internal/falkor"
 )
 
+// TestDoContextualSearchForwardsOptions confirms App.DoContextualSearch
+// propagates WithKNN down to falkor.DoContextualSearch. We seed 5 VerseGroup
+// nodes sharing the query's embedding so Stage 1 returns all 5, then cap
+// the result with WithKNN(2) — the response must be ≤ 2.
 func TestDoContextualSearchForwardsOptions(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	// Set up a mock embedding client that returns a fixed embedding.
+	// Fixed fractional-valued embedding — needs decimals for
+	// falkordb-go's param stringification (see Phase B writeup).
+	embed := make([]float64, 1024)
+	for i := range embed {
+		embed[i] = 0.001
+	}
+	embed[0] = 0.999
+
 	mockEmbed := mocks.NewMockClient(ctrl)
-	floats := make([]float64, 1024)
-	floats[0] = 1.0
-	mockEmbed.EXPECT().
-		EmbedText(gomock.Any(), "test query").
-		Return(floats, nil)
+	mockEmbed.EXPECT().EmbedText(gomock.Any(), "test query").Return(embed, nil)
 
-	// Create a real libsql client with test data.
-	client := libsql.TestClient(t)
+	client := falkor.StartFalkorContainer(t)
 	ctx := context.Background()
-	ec := client.Ent()
-
-	vol, err := ec.Volume.Create().
-		SetName("Test").
-		SetAbbreviation("test").
-		Save(ctx)
-	if err != nil {
-		t.Fatalf("creating volume: %v", err)
+	if err := client.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 
-	book, err := ec.Book.Create().
-		SetName("Test Book").
-		SetSlug("test").
-		SetURLPath("test/test").
-		SetVolume(vol).
-		Save(ctx)
-	if err != nil {
-		t.Fatalf("creating book: %v", err)
+	// Seed 5 VerseGroups with the same embedding as the query so Stage 1
+	// returns up to 5. The kNN cap should trim to 2.
+	vec := make([]interface{}, len(embed))
+	for i, x := range embed {
+		vec[i] = x
 	}
-
-	ch, err := ec.Chapter.Create().
-		SetNumber(1).
-		SetBook(book).
-		Save(ctx)
-	if err != nil {
-		t.Fatalf("creating chapter: %v", err)
-	}
-
-	// Create 5 verse groups, all with the same embedding as the query.
-	queryEmbedding := vec.Float64sToFloat32Bytes(floats)
 	for i := 0; i < 5; i++ {
-		_, err := ec.VerseGroup.Create().
-			SetText("verse group text").
-			SetStartVerseNumber(i*2 + 1).
-			SetEndVerseNumber(i*2 + 2).
-			SetChapter(ch).
-			SetEmbedding(queryEmbedding).
-			Save(ctx)
-		if err != nil {
-			t.Fatalf("creating verse group %d: %v", i, err)
+		if _, err := client.Raw().Query(
+			`CREATE (:VerseGroup {
+			   id: $id, text: 'group',
+			   startVerseNumber: $start, endVerseNumber: $end,
+			   embedding: vecf32($vec)
+			 })`,
+			map[string]interface{}{
+				"id":    "vg/" + string(rune('a'+i)),
+				"start": i*2 + 1,
+				"end":   i*2 + 2,
+				"vec":   vec,
+			}, nil,
+		); err != nil {
+			t.Fatalf("seed VerseGroup %d: %v", i, err)
 		}
 	}
 
 	a := NewApp(client, mockEmbed)
-
-	// Search with kNN=2. If options are forwarded, we should get at most 2 results.
-	results, err := a.DoContextualSearch(ctx, "test query", libsql.WithKNN(2))
+	results, err := a.DoContextualSearch(ctx, "test query", falkor.WithKNN(2))
 	if err != nil {
 		t.Fatalf("DoContextualSearch: %v", err)
 	}
-
 	if len(results) > 2 {
-		t.Errorf("expected at most 2 results with WithKNN(2), got %d (options not forwarded)", len(results))
+		t.Errorf("expected ≤2 results with WithKNN(2), got %d", len(results))
+	}
+	if len(results) == 0 {
+		t.Errorf("expected ≥1 result, got 0 — Stage 1 kNN did not return the seeded groups")
 	}
 }

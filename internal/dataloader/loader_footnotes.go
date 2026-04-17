@@ -3,396 +3,408 @@ package dataloader
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"lds-gpt/internal/libsql/generated"
 )
 
-// loadFootnotes implements Phase 3: re-read all chapter JSONs and create
-// cross-ref, TG, BD, and JST footnote junction rows.
+// Phase 3 — per-verse footnote edges. Re-reads every chapter JSON, parses
+// the footnote text, and creates four kinds of relationship:
+//
+//   * (Verse)-[:CROSS_REF   {VerseCrossRefProps}]->(Verse)
+//   * (Verse)-[:TG_FOOTNOTE {VerseTGRefProps}]->(TopicalGuideEntry)
+//   * (Verse)-[:BD_FOOTNOTE {VerseBDRefProps}]->(BibleDictEntry)
+//   * (Verse)-[:JST_FOOTNOTE{VerseJSTRefProps}]->(JSTPassage)
+//
+// Text parsing (extractCrossRefPortion, extractTGTopics, extractBDEntries,
+// extractJSTReference, parseFootnoteKey) is unchanged from the LibSQL
+// implementation — those are pure functions of footnote text.
+//
+// Writes go through raw Cypher because the generated go-ormql client would
+// require full node payloads (including the @vector embedding) and we only
+// need to connect existing nodes here.
+
+const footnoteBatchSize = 500
+
+type crossRefRow struct {
+	srcID, tgtID, marker, refText string
+	endID                         string // optional; empty means "no end verse"
+}
+type tgRefRow struct {
+	srcID, tgtID, marker string
+}
+type bdRefRow struct {
+	srcID, tgtID, marker string
+}
+type jstRefRow struct {
+	srcID, tgtID, marker string
+}
+
 func (l *Loader) loadFootnotes(
 	ctx context.Context,
 	verseIndex VerseIndex,
-	tgMap map[string]int,
-	bdMap map[string]int,
+	tgMap, bdMap map[string]string,
 	jstIndex JSTIndex,
 ) error {
-	tx, err := l.ec.Tx(ctx)
-	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
-	}
+	var (
+		crossRefs []crossRefRow
+		tgRefs    []tgRefRow
+		bdRefs    []bdRefRow
+		jstRefs   []jstRefRow
 
-	committed := false
-	defer func() {
-		if !committed {
-			tx.Rollback()
-		}
-	}()
+		// Pair-dedupe — the source JSON sometimes repeats the same target
+		// across multiple footnote markers on the same verse; we only keep
+		// one edge per (source, target) per relationship type.
+		seenCross = map[[2]string]bool{}
+		seenTG    = map[[2]string]bool{}
+		seenBD    = map[[2]string]bool{}
+		seenJST   = map[[2]string]bool{}
+	)
 
 	chapterCount := 0
-
 	for _, volAbbrev := range volumeAbbreviations {
 		volDir := filepath.Join(l.dataDir, volAbbrev)
 		bookSlugs, err := listBookSlugs(volDir)
 		if err != nil {
-			return fmt.Errorf("listing books for %s: %w", volAbbrev, err)
+			// Missing volume dir — Phase 1 already warned; skip here.
+			continue
 		}
-
 		for _, bookSlug := range bookSlugs {
 			bookDir := filepath.Join(volDir, bookSlug)
 			chapterFiles, err := listChapterFiles(bookDir)
 			if err != nil {
 				return fmt.Errorf("listing chapters for %s/%s: %w", volAbbrev, bookSlug, err)
 			}
-
 			for _, chFile := range chapterFiles {
 				chPath := filepath.Join(bookDir, chFile)
 				chJSON, err := readChapterJSON(chPath)
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", chPath, err)
 				}
-
-				err = l.processChapterFootnotes(ctx, tx, volAbbrev, bookSlug, chJSON, verseIndex, tgMap, bdMap, jstIndex)
-				if err != nil {
-					return fmt.Errorf("processing footnotes for %s/%s/%d: %w",
-						volAbbrev, bookSlug, chJSON.Chapter, err)
-				}
-
+				l.collectChapterFootnotes(
+					volAbbrev, bookSlug, chJSON,
+					verseIndex, tgMap, bdMap, jstIndex,
+					&crossRefs, &tgRefs, &bdRefs, &jstRefs,
+					seenCross, seenTG, seenBD, seenJST,
+				)
 				chapterCount++
 				if chapterCount%100 == 0 {
 					l.logger.Info("footnotes progress",
 						"chapters_processed", chapterCount,
-						"cross_refs", l.stats.CrossRefs,
-						"verse_tg_refs", l.stats.VerseTGRefs,
+						"cross_refs", len(crossRefs),
+						"tg_refs", len(tgRefs),
 					)
 				}
 			}
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing phase 3: %w", err)
+	if err := l.writeCrossRefs(ctx, crossRefs); err != nil {
+		return err
 	}
-	committed = true
+	if err := l.writeTGFootnotes(ctx, tgRefs); err != nil {
+		return err
+	}
+	if err := l.writeBDFootnotes(ctx, bdRefs); err != nil {
+		return err
+	}
+	if err := l.writeJSTFootnotes(ctx, jstRefs); err != nil {
+		return err
+	}
 
+	l.stats.CrossRefs = len(crossRefs)
+	l.stats.VerseTGRefs = len(tgRefs)
+	l.stats.VerseBDRefs = len(bdRefs)
+	l.stats.VerseJSTRefs = len(jstRefs)
+	l.logger.Info("phase 3 totals",
+		"cross_refs", l.stats.CrossRefs,
+		"verse_tg_refs", l.stats.VerseTGRefs,
+		"verse_bd_refs", l.stats.VerseBDRefs,
+		"verse_jst_refs", l.stats.VerseJSTRefs,
+	)
 	return nil
 }
 
-// processChapterFootnotes processes all footnotes in a single chapter.
-func (l *Loader) processChapterFootnotes(
-	ctx context.Context,
-	tx *generated.Tx,
+// collectChapterFootnotes walks every footnote on one chapter and appends
+// rows to the per-type slices. Pure collection — no DB I/O.
+func (l *Loader) collectChapterFootnotes(
 	volume, slug string,
 	ch ChapterJSON,
 	verseIndex VerseIndex,
-	tgMap map[string]int,
-	bdMap map[string]int,
+	tgMap, bdMap map[string]string,
 	jstIndex JSTIndex,
-) error {
-	// Batch builders for each type
-	var crossRefBuilders []*generated.VerseCrossRefCreate
-	var tgRefBuilders []*generated.VerseTGRefCreate
-	var bdRefBuilders []*generated.VerseBDRefCreate
-	var jstRefBuilders []*generated.VerseJSTRefCreate
-
-	// Dedup sets to avoid unique constraint violations on (source_id, target_id)
-	seenCrossRef := make(map[[2]int]bool)
-	seenTGRef := make(map[[2]int]bool)
-	seenBDRef := make(map[[2]int]bool)
-	seenJSTRef := make(map[[2]int]bool)
-
+	crossRefs *[]crossRefRow, tgRefs *[]tgRefRow, bdRefs *[]bdRefRow, jstRefs *[]jstRefRow,
+	seenCross, seenTG, seenBD, seenJST map[[2]string]bool,
+) {
 	for key, fn := range ch.Footnotes {
-		// Parse verse number and marker from key
 		verseNum, marker := parseFootnoteKey(key)
 		if verseNum == 0 {
-			// Title-level or empty key footnote, skip for junction rows
 			continue
 		}
-
-		// Look up source verse ID
 		verseID, ok := verseIndex.Get(volume, slug, ch.Chapter, verseNum)
 		if !ok {
-			l.stats.Warn(fmt.Sprintf("verse not found for footnote %s in %s/%s/%d",
-				key, volume, slug, ch.Chapter))
+			l.stats.Warn(fmt.Sprintf("verse not found for footnote %s in %s/%s/%d", key, volume, slug, ch.Chapter))
 			continue
 		}
-
 		fullMarker := strconv.Itoa(verseNum) + marker
-		categories := strings.Split(fn.Category, ",")
 
-		for _, cat := range categories {
-			cat = strings.TrimSpace(cat)
-			switch cat {
+		for _, cat := range strings.Split(fn.Category, ",") {
+			switch strings.TrimSpace(cat) {
 			case "cross-ref":
-				builders := l.buildCrossRefRows(fn.Text, verseID, fullMarker, fn.ReferenceText, verseIndex, seenCrossRef)
-				crossRefBuilders = append(crossRefBuilders, builders...)
-
+				for _, r := range l.parseCrossRefRows(fn.Text, verseID, fullMarker, fn.ReferenceText, verseIndex, seenCross) {
+					*crossRefs = append(*crossRefs, r)
+				}
 			case "tg":
-				builders := l.buildTGRefRows(fn.Text, verseID, fullMarker, fn.ReferenceText, tgMap, seenTGRef)
-				tgRefBuilders = append(tgRefBuilders, builders...)
-
+				for _, r := range l.parseTGRefRows(fn.Text, verseID, fullMarker, tgMap, seenTG) {
+					*tgRefs = append(*tgRefs, r)
+				}
 			case "bd":
-				builders := l.buildBDRefRows(fn.Text, verseID, fullMarker, fn.ReferenceText, bdMap, seenBDRef)
-				bdRefBuilders = append(bdRefBuilders, builders...)
-
+				for _, r := range l.parseBDRefRows(fn.Text, verseID, fullMarker, bdMap, seenBD) {
+					*bdRefs = append(*bdRefs, r)
+				}
 			case "jst":
-				builders := l.buildJSTRefRows(fn.Text, verseID, fullMarker, jstIndex, seenJSTRef)
-				jstRefBuilders = append(jstRefBuilders, builders...)
-
+				for _, r := range l.parseJSTRefRows(fn.Text, verseID, fullMarker, jstIndex, seenJST) {
+					*jstRefs = append(*jstRefs, r)
+				}
 			case "trn", "or", "ie":
-				// Already handled in Phase 1 as inline JSON fields
+				// Handled in Phase 1 as inline JSON properties on the Verse node.
 			}
 		}
 	}
-
-	// Bulk insert all junction rows
-	batchSize := 500
-
-	for i := 0; i < len(crossRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(crossRefBuilders) {
-			end = len(crossRefBuilders)
-		}
-		if err := tx.VerseCrossRef.CreateBulk(crossRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating cross-refs: %w", err)
-		}
-	}
-	l.stats.CrossRefs += len(crossRefBuilders)
-
-	for i := 0; i < len(tgRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(tgRefBuilders) {
-			end = len(tgRefBuilders)
-		}
-		if err := tx.VerseTGRef.CreateBulk(tgRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating TG refs: %w", err)
-		}
-	}
-	l.stats.VerseTGRefs += len(tgRefBuilders)
-
-	for i := 0; i < len(bdRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(bdRefBuilders) {
-			end = len(bdRefBuilders)
-		}
-		if err := tx.VerseBDRef.CreateBulk(bdRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating BD refs: %w", err)
-		}
-	}
-	l.stats.VerseBDRefs += len(bdRefBuilders)
-
-	for i := 0; i < len(jstRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(jstRefBuilders) {
-			end = len(jstRefBuilders)
-		}
-		if err := tx.VerseJSTRef.CreateBulk(jstRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating JST refs: %w", err)
-		}
-	}
-	l.stats.VerseJSTRefs += len(jstRefBuilders)
-
-	return nil
 }
 
-// buildCrossRefRows creates VerseCrossRef builders from cross-ref footnote text.
-func (l *Loader) buildCrossRefRows(
-	text string,
-	verseID int,
-	marker string,
-	referenceText string,
+func (l *Loader) parseCrossRefRows(
+	text, verseID, marker, referenceText string,
 	verseIndex VerseIndex,
-	seen map[[2]int]bool,
-) []*generated.VerseCrossRefCreate {
-	// Extract only cross-reference portions (before "TG ", "BD ", "JST " prefixes)
+	seen map[[2]string]bool,
+) []crossRefRow {
 	crossRefText := extractCrossRefPortion(text)
 	if crossRefText == "" {
 		return nil
 	}
-
 	result := l.refParser.Parse(crossRefText)
-	var builders []*generated.VerseCrossRefCreate
-
+	var rows []crossRefRow
 	for _, ref := range result.Refs {
 		targetID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.Verse)
 		if !ok {
-			l.stats.Warn(fmt.Sprintf("cross-ref target not found: %s/%s %d:%d (from marker %s)",
+			l.stats.Warn(fmt.Sprintf("cross-ref target not found: %s/%s %d:%d (marker %s)",
 				ref.Volume, ref.Slug, ref.Chapter, ref.Verse, marker))
 			continue
 		}
-
-		pair := [2]int{verseID, targetID}
+		pair := [2]string{verseID, targetID}
 		if seen[pair] {
 			continue
 		}
 		seen[pair] = true
 
-		b := l.ec.VerseCrossRef.Create().
-			SetFootnoteMarker(marker).
-			SetVerseID(verseID).
-			SetCrossRefTargetID(targetID)
-
-		if referenceText != "" {
-			b.SetReferenceText(referenceText)
-		}
-
+		row := crossRefRow{srcID: verseID, tgtID: targetID, marker: marker, refText: referenceText}
 		if ref.EndVerse > 0 {
-			endID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse)
-			if ok {
-				b.SetTargetEndVerseID(endID)
+			if endID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse); ok {
+				row.endID = endID
 			}
 		}
-
-		builders = append(builders, b)
+		rows = append(rows, row)
 	}
-
 	for _, e := range result.Errors {
 		l.stats.Warn(fmt.Sprintf("cross-ref parse error (marker %s): %s", marker, e))
 	}
-
-	return builders
+	return rows
 }
 
-// buildTGRefRows creates VerseTGRef builders from TG footnote text.
-func (l *Loader) buildTGRefRows(
-	text string,
-	verseID int,
-	marker string,
-	referenceText string,
-	tgMap map[string]int,
-	seen map[[2]int]bool,
-) []*generated.VerseTGRefCreate {
-	topics := extractTGTopics(text)
-	var builders []*generated.VerseTGRefCreate
-
-	for _, topic := range topics {
+func (l *Loader) parseTGRefRows(
+	text, verseID, marker string,
+	tgMap map[string]string,
+	seen map[[2]string]bool,
+) []tgRefRow {
+	var rows []tgRefRow
+	for _, topic := range extractTGTopics(text) {
 		tgID, ok := tgMap[topic]
 		if !ok {
 			l.stats.Warn(fmt.Sprintf("TG topic not found: %q (marker %s)", topic, marker))
 			continue
 		}
-
-		pair := [2]int{verseID, tgID}
+		pair := [2]string{verseID, tgID}
 		if seen[pair] {
 			continue
 		}
 		seen[pair] = true
-
-		b := l.ec.VerseTGRef.Create().
-			SetFootnoteMarker(marker).
-			SetVerseID(verseID).
-			SetTgEntryID(tgID).
-			SetTgTopicText("TG " + topic)
-
-		if referenceText != "" {
-			b.SetReferenceText(referenceText)
-		}
-
-		builders = append(builders, b)
+		rows = append(rows, tgRefRow{srcID: verseID, tgtID: tgID, marker: marker})
 	}
-
-	return builders
+	return rows
 }
 
-// buildBDRefRows creates VerseBDRef builders from BD footnote text.
-func (l *Loader) buildBDRefRows(
-	text string,
-	verseID int,
-	marker string,
-	referenceText string,
-	bdMap map[string]int,
-	seen map[[2]int]bool,
-) []*generated.VerseBDRefCreate {
-	entries := extractBDEntries(text)
-	var builders []*generated.VerseBDRefCreate
-
-	for _, entry := range entries {
+func (l *Loader) parseBDRefRows(
+	text, verseID, marker string,
+	bdMap map[string]string,
+	seen map[[2]string]bool,
+) []bdRefRow {
+	var rows []bdRefRow
+	for _, entry := range extractBDEntries(text) {
 		bdID, ok := bdMap[entry]
 		if !ok {
 			l.stats.Warn(fmt.Sprintf("BD entry not found: %q (marker %s)", entry, marker))
 			continue
 		}
-
-		pair := [2]int{verseID, bdID}
+		pair := [2]string{verseID, bdID}
 		if seen[pair] {
 			continue
 		}
 		seen[pair] = true
-
-		b := l.ec.VerseBDRef.Create().
-			SetFootnoteMarker(marker).
-			SetVerseID(verseID).
-			SetBdEntryID(bdID)
-
-		if referenceText != "" {
-			b.SetReferenceText(referenceText)
-		}
-
-		builders = append(builders, b)
+		rows = append(rows, bdRefRow{srcID: verseID, tgtID: bdID, marker: marker})
 	}
-
-	return builders
+	return rows
 }
 
-// buildJSTRefRows creates VerseJSTRef builders from JST footnote text.
-func (l *Loader) buildJSTRefRows(
-	text string,
-	verseID int,
-	marker string,
+func (l *Loader) parseJSTRefRows(
+	text, verseID, marker string,
 	jstIndex JSTIndex,
-	seen map[[2]int]bool,
-) []*generated.VerseJSTRefCreate {
+	seen map[[2]string]bool,
+) []jstRefRow {
 	jstRef := extractJSTReference(text)
 	if jstRef == "" {
 		return nil
 	}
-
-	// Parse the JST reference to get book/chapter
 	result := l.refParser.Parse(jstRef)
 	if len(result.Refs) == 0 {
 		l.stats.Warn(fmt.Sprintf("JST ref parse failed: %q (marker %s)", text, marker))
 		return nil
 	}
-
 	ref := result.Refs[0]
 	entries := jstIndex.Get(ref.Slug, strconv.Itoa(ref.Chapter))
-
 	if len(entries) == 0 {
 		l.stats.Warn(fmt.Sprintf("JST passage not found: %s %d (marker %s)", ref.Slug, ref.Chapter, marker))
 		return nil
 	}
-
-	// Use the first matching entry (there may be multiple entries per chapter)
-	var builders []*generated.VerseJSTRefCreate
+	var rows []jstRefRow
 	for _, entry := range entries {
-		pair := [2]int{verseID, entry.dbID}
+		pair := [2]string{verseID, entry.nodeID}
 		if seen[pair] {
 			break
 		}
 		seen[pair] = true
-
-		b := l.ec.VerseJSTRef.Create().
-			SetFootnoteMarker(marker).
-			SetVerseID(verseID).
-			SetJstPassageID(entry.dbID)
-		builders = append(builders, b)
-		break // one JST ref per footnote
+		rows = append(rows, jstRefRow{srcID: verseID, tgtID: entry.nodeID, marker: marker})
+		break // first match wins — matches the LibSQL behavior
 	}
-
-	return builders
+	return rows
 }
 
-// parseFootnoteKey extracts verse number and marker letter from a key like "11a".
-// Returns (0, "") for empty or title-level keys.
+// --- Write helpers (batched UNWIND) ---
+
+func (l *Loader) writeCrossRefs(ctx context.Context, rows []crossRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += footnoteBatchSize {
+		end := i + footnoteBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker, "refText": r.refText,
+			})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (s:Verse {id: r.src})
+			 MATCH (t:Verse {id: r.tgt})
+			 CREATE (s)-[:CROSS_REF {
+			   category: 'cross-ref',
+			   footnoteMarker: r.marker,
+			   referenceText: r.refText
+			 }]->(t)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating cross-refs: %w", err)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) writeTGFootnotes(ctx context.Context, rows []tgRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += footnoteBatchSize {
+		end := i + footnoteBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker,
+			})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (v:Verse {id: r.src})
+			 MATCH (t:TopicalGuideEntry {id: r.tgt})
+			 CREATE (v)-[:TG_FOOTNOTE {footnoteMarker: r.marker}]->(t)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating TG footnotes: %w", err)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) writeBDFootnotes(ctx context.Context, rows []bdRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += footnoteBatchSize {
+		end := i + footnoteBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker,
+			})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (v:Verse {id: r.src})
+			 MATCH (b:BibleDictEntry {id: r.tgt})
+			 CREATE (v)-[:BD_FOOTNOTE {footnoteMarker: r.marker}]->(b)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating BD footnotes: %w", err)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) writeJSTFootnotes(ctx context.Context, rows []jstRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += footnoteBatchSize {
+		end := i + footnoteBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker,
+			})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (v:Verse {id: r.src})
+			 MATCH (j:JSTPassage {id: r.tgt})
+			 CREATE (v)-[:JST_FOOTNOTE {footnoteMarker: r.marker}]->(j)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating JST footnotes: %w", err)
+		}
+	}
+	return nil
+}
+
+// --- Footnote text parsing (pure functions, unchanged from the LibSQL
+//     implementation — they operate on strings only) ---
+
 func parseFootnoteKey(key string) (int, string) {
 	if key == "" {
 		return 0, ""
 	}
-
-	// Find where the number ends and the letter begins
 	numEnd := 0
 	for i, ch := range key {
 		if ch >= '0' && ch <= '9' {
@@ -401,147 +413,91 @@ func parseFootnoteKey(key string) (int, string) {
 			break
 		}
 	}
-
 	if numEnd == 0 {
 		return 0, ""
 	}
-
 	verseNum, err := strconv.Atoi(key[:numEnd])
 	if err != nil {
 		return 0, ""
 	}
-
-	marker := key[numEnd:]
-	return verseNum, marker
+	return verseNum, key[numEnd:]
 }
 
-// extractCrossRefPortion extracts just the cross-reference text from a footnote,
-// stopping at "TG ", "BD ", "JST ", "HEB ", "GR ", "IE " prefixes.
 func extractCrossRefPortion(text string) string {
-	// Find first occurrence of known prefix markers
-	prefixes := []string{" TG ", " BD ", " JST ", " HEB ", " GR ", " IE "}
-	minIdx := len(text)
-
-	for _, p := range prefixes {
-		idx := strings.Index(text, p)
-		if idx >= 0 && idx < minIdx {
-			minIdx = idx
-		}
-	}
-
-	// Also check for these at the start of text
 	startPrefixes := []string{"TG ", "BD ", "JST ", "HEB ", "GR ", "IE "}
 	for _, p := range startPrefixes {
 		if strings.HasPrefix(text, p) {
 			return ""
 		}
 	}
-
+	prefixes := []string{" TG ", " BD ", " JST ", " HEB ", " GR ", " IE "}
+	minIdx := len(text)
+	for _, p := range prefixes {
+		if idx := strings.Index(text, p); idx >= 0 && idx < minIdx {
+			minIdx = idx
+		}
+	}
 	result := strings.TrimSpace(text[:minIdx])
-	result = strings.TrimRight(result, ".")
-	return result
+	return strings.TrimRight(result, ".")
 }
 
-// extractTGTopics extracts topic names from TG footnote text.
-// Input: "TG Creation; God, Creator." or "D&C 1:1. TG Creation."
-// Output: ["Creation", "God, Creator"]
 func extractTGTopics(text string) []string {
-	// Find "TG " prefix (possibly after other content)
 	idx := strings.Index(text, "TG ")
 	if idx < 0 {
 		return nil
 	}
-
-	tgText := text[idx+3:]
-
-	// Remove trailing period and anything after next known prefix
-	tgText = trimAtNextPrefix(tgText)
+	tgText := trimAtNextPrefix(text[idx+3:])
 	tgText = strings.TrimRight(tgText, ".")
 	tgText = strings.TrimSpace(tgText)
-
 	if tgText == "" {
 		return nil
 	}
-
-	// Split on semicolons
-	parts := strings.Split(tgText, ";")
 	var topics []string
-	for _, p := range parts {
+	for _, p := range strings.Split(tgText, ";") {
 		p = strings.TrimSpace(p)
 		p = strings.TrimRight(p, ".")
 		if p != "" {
 			topics = append(topics, p)
 		}
 	}
-
 	return topics
 }
 
-// extractBDEntries extracts entry names from BD footnote text.
-// Input: "BD Money." or "BD Lost books. See also ..."
-// Output: ["Money"] or ["Lost books"]
 func extractBDEntries(text string) []string {
 	idx := strings.Index(text, "BD ")
 	if idx < 0 {
 		return nil
 	}
-
 	bdText := text[idx+3:]
-
-	// BD entry name ends at first period
-	dotIdx := strings.Index(bdText, ".")
-	if dotIdx >= 0 {
+	if dotIdx := strings.Index(bdText, "."); dotIdx >= 0 {
 		bdText = bdText[:dotIdx]
 	}
-
 	bdText = strings.TrimSpace(bdText)
 	if bdText == "" {
 		return nil
 	}
-
 	return []string{bdText}
 }
 
-// extractJSTReference extracts the scripture reference from JST footnote text.
-// Input: "JST Matt. 5:21 (Appendix)." -> "Matt. 5:21"
-// Input: "JST Rom. 1:17 ... through faith" -> "Rom. 1:17"
 func extractJSTReference(text string) string {
 	idx := strings.Index(text, "JST ")
 	if idx < 0 {
 		return ""
 	}
-
-	refText := text[idx+4:]
-	refText = strings.TrimSpace(refText)
-
-	// The reference ends at the first space after chapter:verse pattern,
-	// or at a parenthesis, or at specific keywords
-	// Strategy: parse character by character, looking for end of reference
-	endIdx := findRefEnd(refText)
-	if endIdx > 0 {
+	refText := strings.TrimSpace(text[idx+4:])
+	if endIdx := findRefEnd(refText); endIdx > 0 {
 		refText = refText[:endIdx]
 	}
-
-	refText = strings.TrimRight(refText, ".")
-	refText = strings.TrimSpace(refText)
-
-	return refText
+	return strings.TrimSpace(strings.TrimRight(refText, "."))
 }
 
-// findRefEnd finds where the scripture reference ends in a string.
-// Returns the index of the first character after the reference, or 0 to use the full string.
 func findRefEnd(s string) int {
-	// Look for chapter:verse pattern, then find where digits stop
 	colonIdx := strings.Index(s, ":")
 	if colonIdx < 0 {
 		return 0
 	}
-
-	// Normalize dashes first, then scan for digits and hyphens
 	normalized := strings.ReplaceAll(s, "–", "-")
 	normalized = strings.ReplaceAll(normalized, "—", "-")
-
-	// After the colon, scan for digits and dashes (for ranges like "5:21-34")
 	i := colonIdx + 1
 	for i < len(normalized) {
 		ch := normalized[i]
@@ -551,35 +507,19 @@ func findRefEnd(s string) int {
 		}
 		break
 	}
-
-	// If we stopped at a space or special char, that's the end
 	if i < len(normalized) {
 		return i
 	}
 	return 0
 }
 
-// trimAtNextPrefix trims text at the next occurrence of a known prefix.
 func trimAtNextPrefix(text string) string {
 	prefixes := []string{" BD ", " JST ", " HEB ", " GR ", " IE "}
 	minIdx := len(text)
-
 	for _, p := range prefixes {
-		idx := strings.Index(text, p)
-		if idx >= 0 && idx < minIdx {
+		if idx := strings.Index(text, p); idx >= 0 && idx < minIdx {
 			minIdx = idx
 		}
 	}
-
 	return text[:minIdx]
-}
-
-// readStudyHelpJSON reads and returns the raw bytes of a study help JSON file.
-func readStudyHelpJSON(dataDir, filename string) ([]byte, error) {
-	path := filepath.Join(dataDir, filename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	return data, nil
 }

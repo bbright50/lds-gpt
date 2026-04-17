@@ -1,0 +1,143 @@
+# lds-gpt property-graph schema — source of truth for go-ormql codegen.
+#
+# Design notes:
+#   * @vector fields are `[Float!]!` (non-null) because go-ormql's generator
+#     requires it. In practice, Phase 1 of the dataloader inserts nodes before
+#     embeddings exist — those writes use raw Cypher (Client.Raw()) and bypass
+#     the generated createXxx mutation. Phase 6 writes embeddings via raw
+#     `SET n.embedding = vecf32(...)` for the same reason.
+#   * The six through-entity types from the prior LibSQL/Ent schema (VerseCrossRef,
+#     TGVerseRef, BDVerseRef, IDXVerseRef, VerseJSTRef, VerseTGRef) collapse
+#     into @relationshipProperties types below.
+#   * Relationships that carry no metadata (CONTAINS, HAS_VERSE, SEE_ALSO, etc.)
+#     have no properties type — they're plain untyped edges.
+
+# ---------- Structural hierarchy ----------
+
+type Volume @node {
+  id: ID!
+  name: String!
+  abbreviation: String!
+  books: [Book!]! @relationship(type: "CONTAINS", direction: OUT)
+}
+
+type Book @node {
+  id: ID!
+  name: String!
+  slug: String!
+  urlPath: String!
+  volume: Volume! @relationship(type: "CONTAINS", direction: IN)
+  chapters: [Chapter!]! @relationship(type: "CONTAINS", direction: OUT)
+}
+
+type Chapter @node {
+  id: ID!
+  number: Int!
+  summary: String
+  summaryEmbedding: [Float!]! @vector(indexName: "chapter_summary_embedding", dimensions: 1024, similarity: "cosine")
+  url: String
+  book: Book! @relationship(type: "CONTAINS", direction: IN)
+  verses: [Verse!]! @relationship(type: "HAS_VERSE", direction: OUT)
+  verseGroups: [VerseGroup!]! @relationship(type: "HAS_GROUP", direction: OUT)
+}
+
+type Verse @node {
+  id: ID!
+  number: Int!
+  reference: String!
+  text: String!
+  translationNotes: String
+  alternateReadings: String
+  explanatoryNotes: String
+  chapter: Chapter! @relationship(type: "HAS_VERSE", direction: IN)
+  crossRefsOut: [Verse!]! @relationship(type: "CROSS_REF", direction: OUT, properties: "VerseCrossRefProps")
+  crossRefsIn: [Verse!]! @relationship(type: "CROSS_REF", direction: IN, properties: "VerseCrossRefProps")
+  tgFootnotes: [TopicalGuideEntry!]! @relationship(type: "TG_FOOTNOTE", direction: OUT, properties: "VerseTGRefProps")
+  bdFootnotes: [BibleDictEntry!]! @relationship(type: "BD_FOOTNOTE", direction: OUT, properties: "VerseBDRefProps")
+  jstFootnotes: [JSTPassage!]! @relationship(type: "JST_FOOTNOTE", direction: OUT, properties: "VerseJSTRefProps")
+}
+
+type VerseGroup @node {
+  id: ID!
+  text: String!
+  startVerseNumber: Int!
+  endVerseNumber: Int!
+  embedding: [Float!]! @vector(indexName: "verse_group_embedding", dimensions: 1024, similarity: "cosine")
+  chapter: Chapter! @relationship(type: "HAS_GROUP", direction: IN)
+  verses: [Verse!]! @relationship(type: "INCLUDES", direction: OUT)
+}
+
+# ---------- Study helps ----------
+
+type TopicalGuideEntry @node {
+  id: ID!
+  name: String!
+  embedding: [Float!]! @vector(indexName: "tg_embedding", dimensions: 1024, similarity: "cosine")
+  seeAlso: [TopicalGuideEntry!]! @relationship(type: "TG_SEE_ALSO", direction: OUT)
+  bdRefs: [BibleDictEntry!]! @relationship(type: "TG_BD_REF", direction: OUT)
+  verseRefs: [Verse!]! @relationship(type: "TG_VERSE_REF", direction: OUT, properties: "TGVerseRefProps")
+}
+
+type BibleDictEntry @node {
+  id: ID!
+  name: String!
+  text: String!
+  embedding: [Float!]! @vector(indexName: "bd_embedding", dimensions: 1024, similarity: "cosine")
+  seeAlso: [BibleDictEntry!]! @relationship(type: "BD_SEE_ALSO", direction: OUT)
+  verseRefs: [Verse!]! @relationship(type: "BD_VERSE_REF", direction: OUT, properties: "BDVerseRefProps")
+}
+
+type IndexEntry @node {
+  id: ID!
+  name: String!
+  embedding: [Float!]! @vector(indexName: "idx_embedding", dimensions: 1024, similarity: "cosine")
+  seeAlso: [IndexEntry!]! @relationship(type: "IDX_SEE_ALSO", direction: OUT)
+  tgRefs: [TopicalGuideEntry!]! @relationship(type: "IDX_TG_REF", direction: OUT)
+  bdRefs: [BibleDictEntry!]! @relationship(type: "IDX_BD_REF", direction: OUT)
+  verseRefs: [Verse!]! @relationship(type: "IDX_VERSE_REF", direction: OUT, properties: "IDXVerseRefProps")
+}
+
+type JSTPassage @node {
+  id: ID!
+  book: String!
+  chapter: String!
+  comprises: String!
+  compareRef: String
+  summary: String
+  text: String!
+  embedding: [Float!]! @vector(indexName: "jst_embedding", dimensions: 1024, similarity: "cosine")
+  compareVerses: [Verse!]! @relationship(type: "COMPARES", direction: OUT)
+}
+
+# ---------- Relationship property types ----------
+# (Collapsed from the six Ent through-entities.)
+
+type VerseCrossRefProps @relationshipProperties {
+  category: String
+  footnoteMarker: String
+  referenceText: String
+}
+
+type VerseTGRefProps @relationshipProperties {
+  footnoteMarker: String
+}
+
+type VerseBDRefProps @relationshipProperties {
+  footnoteMarker: String
+}
+
+type VerseJSTRefProps @relationshipProperties {
+  footnoteMarker: String
+}
+
+type TGVerseRefProps @relationshipProperties {
+  phrase: String
+}
+
+type BDVerseRefProps @relationshipProperties {
+  targetEndVerseId: String
+}
+
+type IDXVerseRefProps @relationshipProperties {
+  phrase: String
+}

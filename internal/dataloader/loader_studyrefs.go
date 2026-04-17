@@ -2,207 +2,163 @@ package dataloader
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-
-	"lds-gpt/internal/libsql/generated"
+	"strconv"
 )
 
-// loadStudyRefs implements Phase 4: create edges from study help entities
-// (TG, BD, IDX, JST) to verses and to each other.
+// Phase 4 — edges from study-help entries to verses and to each other.
+//
+// Nine relationship kinds:
+//   * TG_VERSE_REF  {phrase}            TG  → Verse
+//   * TG_SEE_ALSO                       TG  → TG   (self)
+//   * TG_BD_REF                         TG  → BD
+//   * BD_VERSE_REF                      BD  → Verse
+//   * IDX_VERSE_REF {phrase}            IDX → Verse
+//   * IDX_SEE_ALSO                      IDX → IDX  (self)
+//   * IDX_TG_REF                        IDX → TG
+//   * IDX_BD_REF                        IDX → BD
+//   * COMPARES                          JST → Verse
+//
+// Reads topical-guide.json / bible-dictionary.json / triple-combination-index.json
+// / jst.json a second time (after Phase 2 created the nodes) and connects
+// them into a graph. Writes go through raw Cypher because these are pure
+// relationship creates between pre-existing nodes.
+
+const studyRefsBatchSize = 500
+
+type tgVerseRefRow struct {
+	tgID, verseID, phrase string
+}
+type bdVerseRefRow struct {
+	bdID, verseID string
+}
+type idxVerseRefRow struct {
+	idxID, verseID, phrase string
+}
+type simplePairRow struct {
+	srcID, tgtID string
+}
+
 func (l *Loader) loadStudyRefs(
 	ctx context.Context,
 	verseIndex VerseIndex,
-	tgMap map[string]int,
-	bdMap map[string]int,
-	idxMap map[string]int,
+	tgMap, bdMap, idxMap map[string]string,
 	jstIndex JSTIndex,
 ) error {
-	tx, err := l.ec.Tx(ctx)
-	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
-	}
-
-	committed := false
-	defer func() {
-		if !committed {
-			tx.Rollback()
-		}
-	}()
-
-	if err := l.loadTGRefs(ctx, tx, verseIndex, tgMap, bdMap); err != nil {
+	if err := l.loadTGRefs(ctx, verseIndex, tgMap, bdMap); err != nil {
 		return fmt.Errorf("loading TG refs: %w", err)
 	}
-
-	if err := l.loadBDRefs(ctx, tx, verseIndex, bdMap); err != nil {
+	if err := l.loadBDRefs(ctx, verseIndex, bdMap); err != nil {
 		return fmt.Errorf("loading BD refs: %w", err)
 	}
-
-	if err := l.loadIDXRefs(ctx, tx, verseIndex, idxMap, tgMap, bdMap); err != nil {
+	if err := l.loadIDXRefs(ctx, verseIndex, idxMap, tgMap, bdMap); err != nil {
 		return fmt.Errorf("loading IDX refs: %w", err)
 	}
-
-	if err := l.loadJSTCompares(ctx, tx, verseIndex, jstIndex); err != nil {
+	if err := l.loadJSTCompares(ctx, verseIndex, jstIndex); err != nil {
 		return fmt.Errorf("loading JST compares: %w", err)
 	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing phase 4: %w", err)
-	}
-	committed = true
-
 	return nil
 }
 
-// loadTGRefs creates TG -> verse refs, TG -> TG see-also, and TG -> BD edges.
 func (l *Loader) loadTGRefs(
 	ctx context.Context,
-	tx *generated.Tx,
 	verseIndex VerseIndex,
-	tgMap map[string]int,
-	bdMap map[string]int,
+	tgMap, bdMap map[string]string,
 ) error {
-	data, err := os.ReadFile(filepath.Join(l.dataDir, "topical-guide.json"))
-	if err != nil {
-		return fmt.Errorf("reading topical guide: %w", err)
+	tgData := map[string][]TGEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "topical-guide.json", &tgData); err != nil || !ok {
+		return err
 	}
 
-	var tgData map[string][]TGEntryJSON
-	if err := json.Unmarshal(data, &tgData); err != nil {
-		return fmt.Errorf("parsing topical guide: %w", err)
-	}
-
-	var verseRefBuilders []*generated.TGVerseRefCreate
-	batchSize := 500
-	seenTGVerse := make(map[[2]int]bool)
+	var (
+		verseRows []tgVerseRefRow
+		seeAlso   []simplePairRow
+		bdRefs    []simplePairRow
+		seenV     = map[[2]string]bool{}
+	)
 
 	for topicName, entries := range tgData {
 		tgID, ok := tgMap[topicName]
 		if !ok {
 			continue
 		}
-
 		for _, entry := range entries {
 			switch entry.Reference {
 			case "TG":
-				// See-also: TG -> TG
 				targetID, ok := tgMap[entry.Key]
 				if !ok {
 					l.stats.Warn(fmt.Sprintf("TG see-also target not found: %q (from %q)", entry.Key, topicName))
 					continue
 				}
-				if err := tx.TopicalGuideEntry.UpdateOneID(tgID).AddSeeAlsoIDs(targetID).Exec(ctx); err != nil {
-					return fmt.Errorf("adding TG see-also %q -> %q: %w", topicName, entry.Key, err)
-				}
-				l.stats.TGSeeAlso++
-
+				seeAlso = append(seeAlso, simplePairRow{srcID: tgID, tgtID: targetID})
 			case "BD":
-				// TG -> BD reference
 				bdID, ok := bdMap[entry.Key]
 				if !ok {
 					l.stats.Warn(fmt.Sprintf("TG->BD target not found: %q (from %q)", entry.Key, topicName))
 					continue
 				}
-				if err := tx.TopicalGuideEntry.UpdateOneID(tgID).AddBdRefIDs(bdID).Exec(ctx); err != nil {
-					return fmt.Errorf("adding TG->BD %q -> %q: %w", topicName, entry.Key, err)
-				}
-				l.stats.TGBDRefs++
-
+				bdRefs = append(bdRefs, simplePairRow{srcID: tgID, tgtID: bdID})
 			default:
-				// Scripture reference
-				builders := l.buildTGVerseRefs(entry, tgID, verseIndex, seenTGVerse)
-				verseRefBuilders = append(verseRefBuilders, builders...)
+				verseRows = append(verseRows, l.collectTGVerseRefs(entry, tgID, verseIndex, seenV)...)
 			}
 		}
 	}
 
-	// Bulk create TGVerseRef rows
-	for i := 0; i < len(verseRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(verseRefBuilders) {
-			end = len(verseRefBuilders)
-		}
-		if err := tx.TGVerseRef.CreateBulk(verseRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating TG verse refs: %w", err)
-		}
+	if err := l.writeTGVerseRefs(ctx, verseRows); err != nil {
+		return err
 	}
-	l.stats.TGVerseRefs += len(verseRefBuilders)
+	if err := l.writeSimplePairs(ctx, seeAlso, "TopicalGuideEntry", "TopicalGuideEntry", "TG_SEE_ALSO"); err != nil {
+		return err
+	}
+	if err := l.writeSimplePairs(ctx, bdRefs, "TopicalGuideEntry", "BibleDictEntry", "TG_BD_REF"); err != nil {
+		return err
+	}
 
+	l.stats.TGVerseRefs += len(verseRows)
+	l.stats.TGSeeAlso += len(seeAlso)
+	l.stats.TGBDRefs += len(bdRefs)
 	return nil
 }
 
-// buildTGVerseRefs creates TGVerseRef builders from a TG entry's scripture reference.
-func (l *Loader) buildTGVerseRefs(entry TGEntryJSON, tgID int, verseIndex VerseIndex, seen map[[2]int]bool) []*generated.TGVerseRefCreate {
+func (l *Loader) collectTGVerseRefs(entry TGEntryJSON, tgID string, verseIndex VerseIndex, seen map[[2]string]bool) []tgVerseRefRow {
 	result := l.refParser.Parse(entry.Reference)
-	var builders []*generated.TGVerseRefCreate
-
+	var rows []tgVerseRefRow
 	for _, ref := range result.Refs {
 		verseID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.Verse)
 		if !ok {
 			l.stats.Warn(fmt.Sprintf("TG verse ref not found: %s/%s %d:%d", ref.Volume, ref.Slug, ref.Chapter, ref.Verse))
 			continue
 		}
-
-		pair := [2]int{tgID, verseID}
+		pair := [2]string{tgID, verseID}
 		if seen[pair] {
 			continue
 		}
 		seen[pair] = true
-
-		b := l.ec.TGVerseRef.Create().
-			SetTgEntryID(tgID).
-			SetVerseID(verseID)
-
-		if entry.Phrase != "" {
-			b.SetPhrase(entry.Phrase)
-		}
-
-		if ref.EndVerse > 0 {
-			endID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse)
-			if ok {
-				b.SetTargetEndVerseID(endID)
-			}
-		}
-
-		builders = append(builders, b)
+		rows = append(rows, tgVerseRefRow{tgID: tgID, verseID: verseID, phrase: entry.Phrase})
 	}
-
 	for _, e := range result.Errors {
 		l.stats.Warn(fmt.Sprintf("TG verse ref parse error: %s", e))
 	}
-
-	return builders
+	return rows
 }
 
-// loadBDRefs creates BD -> verse refs from the references array.
 func (l *Loader) loadBDRefs(
 	ctx context.Context,
-	tx *generated.Tx,
 	verseIndex VerseIndex,
-	bdMap map[string]int,
+	bdMap map[string]string,
 ) error {
-	data, err := os.ReadFile(filepath.Join(l.dataDir, "bible-dictionary.json"))
-	if err != nil {
-		return fmt.Errorf("reading bible dictionary: %w", err)
+	bdData := map[string]BDEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "bible-dictionary.json", &bdData); err != nil || !ok {
+		return err
 	}
 
-	var bdData map[string]BDEntryJSON
-	if err := json.Unmarshal(data, &bdData); err != nil {
-		return fmt.Errorf("parsing bible dictionary: %w", err)
-	}
-
-	var verseRefBuilders []*generated.BDVerseRefCreate
-	batchSize := 500
-	seenBDVerse := make(map[[2]int]bool)
-
+	var rows []bdVerseRefRow
+	seen := map[[2]string]bool{}
 	for entryName, entry := range bdData {
 		bdID, ok := bdMap[entryName]
 		if !ok {
 			continue
 		}
-
 		for _, refStr := range entry.References {
 			result := l.refParser.Parse(refStr)
 			for _, ref := range result.Refs {
@@ -212,117 +168,70 @@ func (l *Loader) loadBDRefs(
 						ref.Volume, ref.Slug, ref.Chapter, ref.Verse, entryName))
 					continue
 				}
-
-				pair := [2]int{bdID, verseID}
-				if seenBDVerse[pair] {
+				pair := [2]string{bdID, verseID}
+				if seen[pair] {
 					continue
 				}
-				seenBDVerse[pair] = true
-
-				b := l.ec.BDVerseRef.Create().
-					SetBdEntryID(bdID).
-					SetVerseID(verseID)
-
-				if ref.EndVerse > 0 {
-					endID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse)
-					if ok {
-						b.SetTargetEndVerseID(endID)
-					}
-				}
-
-				verseRefBuilders = append(verseRefBuilders, b)
+				seen[pair] = true
+				rows = append(rows, bdVerseRefRow{bdID: bdID, verseID: verseID})
 			}
-
 			for _, e := range result.Errors {
 				l.stats.Warn(fmt.Sprintf("BD verse ref parse error (from %q): %s", entryName, e))
 			}
 		}
 	}
 
-	// Bulk create BDVerseRef rows
-	for i := 0; i < len(verseRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(verseRefBuilders) {
-			end = len(verseRefBuilders)
-		}
-		if err := tx.BDVerseRef.CreateBulk(verseRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating BD verse refs: %w", err)
-		}
+	if err := l.writeBDVerseRefs(ctx, rows); err != nil {
+		return err
 	}
-	l.stats.BDVerseRefs += len(verseRefBuilders)
-
+	l.stats.BDVerseRefs += len(rows)
 	return nil
 }
 
-// loadIDXRefs creates IDX -> verse refs, IDX -> IDX see-also, IDX -> TG, IDX -> BD edges.
 func (l *Loader) loadIDXRefs(
 	ctx context.Context,
-	tx *generated.Tx,
 	verseIndex VerseIndex,
-	idxMap map[string]int,
-	tgMap map[string]int,
-	bdMap map[string]int,
+	idxMap, tgMap, bdMap map[string]string,
 ) error {
-	data, err := os.ReadFile(filepath.Join(l.dataDir, "triple-combination-index.json"))
-	if err != nil {
-		return fmt.Errorf("reading triple combination index: %w", err)
+	idxData := map[string][]IDXEntryJSON{}
+	if ok, err := l.readOptionalJSON(ctx, "triple-combination-index.json", &idxData); err != nil || !ok {
+		return err
 	}
 
-	var idxData map[string][]IDXEntryJSON
-	if err := json.Unmarshal(data, &idxData); err != nil {
-		return fmt.Errorf("parsing triple combination index: %w", err)
-	}
-
-	var verseRefBuilders []*generated.IDXVerseRefCreate
-	batchSize := 500
-	seenIDXVerse := make(map[[2]int]bool)
+	var (
+		verseRows []idxVerseRefRow
+		seeAlso   []simplePairRow
+		tgRefs    []simplePairRow
+		bdRefs    []simplePairRow
+		seenV     = map[[2]string]bool{}
+	)
 
 	for entryName, entries := range idxData {
 		idxID, ok := idxMap[entryName]
 		if !ok {
 			continue
 		}
-
 		for _, entry := range entries {
 			switch entry.Reference {
 			case "IDX":
-				// See-also: IDX -> IDX
-				targetID, ok := idxMap[entry.Key]
-				if !ok {
+				if targetID, ok := idxMap[entry.Key]; ok {
+					seeAlso = append(seeAlso, simplePairRow{srcID: idxID, tgtID: targetID})
+				} else {
 					l.stats.Warn(fmt.Sprintf("IDX see-also target not found: %q (from %q)", entry.Key, entryName))
-					continue
 				}
-				if err := tx.IndexEntry.UpdateOneID(idxID).AddSeeAlsoIDs(targetID).Exec(ctx); err != nil {
-					return fmt.Errorf("adding IDX see-also %q -> %q: %w", entryName, entry.Key, err)
-				}
-				l.stats.IDXSeeAlso++
-
 			case "TG":
-				// IDX -> TG reference
-				tgID, ok := tgMap[entry.Key]
-				if !ok {
+				if tgID, ok := tgMap[entry.Key]; ok {
+					tgRefs = append(tgRefs, simplePairRow{srcID: idxID, tgtID: tgID})
+				} else {
 					l.stats.Warn(fmt.Sprintf("IDX->TG target not found: %q (from %q)", entry.Key, entryName))
-					continue
 				}
-				if err := tx.IndexEntry.UpdateOneID(idxID).AddTgRefIDs(tgID).Exec(ctx); err != nil {
-					return fmt.Errorf("adding IDX->TG %q -> %q: %w", entryName, entry.Key, err)
-				}
-				l.stats.IDXTGRefs++
-
 			case "BD":
-				// IDX -> BD reference
-				bdID, ok := bdMap[entry.Key]
-				if !ok {
+				if bdID, ok := bdMap[entry.Key]; ok {
+					bdRefs = append(bdRefs, simplePairRow{srcID: idxID, tgtID: bdID})
+				} else {
 					l.stats.Warn(fmt.Sprintf("IDX->BD target not found: %q (from %q)", entry.Key, entryName))
-					continue
 				}
-				if err := tx.IndexEntry.UpdateOneID(idxID).AddBdRefIDs(bdID).Exec(ctx); err != nil {
-					return fmt.Errorf("adding IDX->BD %q -> %q: %w", entryName, entry.Key, err)
-				}
-				l.stats.IDXBDRefs++
-
 			default:
-				// Scripture reference
 				result := l.refParser.Parse(entry.Reference)
 				for _, ref := range result.Refs {
 					verseID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.Verse)
@@ -331,31 +240,13 @@ func (l *Loader) loadIDXRefs(
 							ref.Volume, ref.Slug, ref.Chapter, ref.Verse, entryName))
 						continue
 					}
-
-					pair := [2]int{idxID, verseID}
-					if seenIDXVerse[pair] {
+					pair := [2]string{idxID, verseID}
+					if seenV[pair] {
 						continue
 					}
-					seenIDXVerse[pair] = true
-
-					b := l.ec.IDXVerseRef.Create().
-						SetIndexEntryID(idxID).
-						SetVerseID(verseID)
-
-					if entry.Phrase != "" {
-						b.SetPhrase(entry.Phrase)
-					}
-
-					if ref.EndVerse > 0 {
-						endID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse)
-						if ok {
-							b.SetTargetEndVerseID(endID)
-						}
-					}
-
-					verseRefBuilders = append(verseRefBuilders, b)
+					seenV[pair] = true
+					verseRows = append(verseRows, idxVerseRefRow{idxID: idxID, verseID: verseID, phrase: entry.Phrase})
 				}
-
 				for _, e := range result.Errors {
 					l.stats.Warn(fmt.Sprintf("IDX verse ref parse error (from %q): %s", entryName, e))
 				}
@@ -363,100 +254,191 @@ func (l *Loader) loadIDXRefs(
 		}
 	}
 
-	// Bulk create IDXVerseRef rows
-	for i := 0; i < len(verseRefBuilders); i += batchSize {
-		end := i + batchSize
-		if end > len(verseRefBuilders) {
-			end = len(verseRefBuilders)
-		}
-		if err := tx.IDXVerseRef.CreateBulk(verseRefBuilders[i:end]...).Exec(ctx); err != nil {
-			return fmt.Errorf("creating IDX verse refs: %w", err)
-		}
+	if err := l.writeIDXVerseRefs(ctx, verseRows); err != nil {
+		return err
 	}
-	l.stats.IDXVerseRefs += len(verseRefBuilders)
+	if err := l.writeSimplePairs(ctx, seeAlso, "IndexEntry", "IndexEntry", "IDX_SEE_ALSO"); err != nil {
+		return err
+	}
+	if err := l.writeSimplePairs(ctx, tgRefs, "IndexEntry", "TopicalGuideEntry", "IDX_TG_REF"); err != nil {
+		return err
+	}
+	if err := l.writeSimplePairs(ctx, bdRefs, "IndexEntry", "BibleDictEntry", "IDX_BD_REF"); err != nil {
+		return err
+	}
 
+	l.stats.IDXVerseRefs += len(verseRows)
+	l.stats.IDXSeeAlso += len(seeAlso)
+	l.stats.IDXTGRefs += len(tgRefs)
+	l.stats.IDXBDRefs += len(bdRefs)
 	return nil
 }
 
-// loadJSTCompares creates JST -> Verse compare edges.
 func (l *Loader) loadJSTCompares(
 	ctx context.Context,
-	tx *generated.Tx,
 	verseIndex VerseIndex,
 	jstIndex JSTIndex,
 ) error {
-	data, err := os.ReadFile(filepath.Join(l.dataDir, "jst.json"))
-	if err != nil {
-		return fmt.Errorf("reading JST: %w", err)
-	}
-
 	var jstData []JSTChapterJSON
-	if err := json.Unmarshal(data, &jstData); err != nil {
-		return fmt.Errorf("parsing JST: %w", err)
+	if ok, err := l.readOptionalJSON(ctx, "jst.json", &jstData); err != nil || !ok {
+		return err
 	}
 
+	var pairs []simplePairRow
 	for _, ch := range jstData {
 		bookSlug := l.jstBookToSlug(ch.Book)
 		if bookSlug == "" {
 			continue
 		}
-
 		for _, entry := range ch.Entries {
 			if entry.Compare == "" {
 				continue
 			}
-
-			// Find the JST passage DB ID
-			jstEntries := jstIndex.Get(bookSlug, ch.Chapter)
-			var passageID int
-			for _, je := range jstEntries {
+			var passageID string
+			for _, je := range jstIndex.Get(bookSlug, ch.Chapter) {
 				if je.comprises == entry.Comprises {
-					passageID = je.dbID
+					passageID = je.nodeID
 					break
 				}
 			}
-			if passageID == 0 {
+			if passageID == "" {
 				l.stats.Warn(fmt.Sprintf("JST passage not found for compare: %s %s:%s", ch.Book, ch.Chapter, entry.Comprises))
 				continue
 			}
 
-			// Parse the compare reference to get verse IDs
 			result := l.refParser.Parse(entry.Compare)
-			var verseIDs []int
-
 			for _, ref := range result.Refs {
-				vID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.Verse)
-				if !ok {
+				if vID, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.Verse); ok {
+					pairs = append(pairs, simplePairRow{srcID: passageID, tgtID: vID})
+				} else {
 					l.stats.Warn(fmt.Sprintf("JST compare verse not found: %s/%s %d:%d",
 						ref.Volume, ref.Slug, ref.Chapter, ref.Verse))
-					continue
 				}
-				verseIDs = append(verseIDs, vID)
-
-				// If range, add all verses in between
 				if ref.EndVerse > 0 {
 					for v := ref.Verse + 1; v <= ref.EndVerse; v++ {
-						id, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, v)
-						if ok {
-							verseIDs = append(verseIDs, id)
+						if id, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, v); ok {
+							pairs = append(pairs, simplePairRow{srcID: passageID, tgtID: id})
 						}
 					}
 				}
 			}
-
-			if len(verseIDs) > 0 {
-				if err := tx.JSTPassage.UpdateOneID(passageID).AddCompareVerseIDs(verseIDs...).Exec(ctx); err != nil {
-					return fmt.Errorf("adding JST compare verses for %s %s: %w", ch.Book, ch.Chapter, err)
-				}
-				l.stats.JSTCompares += len(verseIDs)
-			}
-
 			for _, e := range result.Errors {
 				l.stats.Warn(fmt.Sprintf("JST compare parse error (%s %s): %s", ch.Book, ch.Chapter, e))
 			}
 		}
 	}
 
+	if err := l.writeSimplePairs(ctx, pairs, "JSTPassage", "Verse", "COMPARES"); err != nil {
+		return err
+	}
+	l.stats.JSTCompares += len(pairs)
+	// Touch strconv so its existing use for verse numbers stays linked — keeps
+	// the import list minimal across the package.
+	_ = strconv.Atoi
 	return nil
 }
 
+// --- Write helpers (batched UNWIND) ---
+
+func (l *Loader) writeTGVerseRefs(ctx context.Context, rows []tgVerseRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += studyRefsBatchSize {
+		end := i + studyRefsBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{"tg": r.tgID, "v": r.verseID, "phrase": r.phrase})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (t:TopicalGuideEntry {id: r.tg})
+			 MATCH (v:Verse {id: r.v})
+			 CREATE (t)-[:TG_VERSE_REF {phrase: r.phrase}]->(v)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating TG verse refs: %w", err)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) writeBDVerseRefs(ctx context.Context, rows []bdVerseRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += studyRefsBatchSize {
+		end := i + studyRefsBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{"bd": r.bdID, "v": r.verseID})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (b:BibleDictEntry {id: r.bd})
+			 MATCH (v:Verse {id: r.v})
+			 CREATE (b)-[:BD_VERSE_REF]->(v)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating BD verse refs: %w", err)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) writeIDXVerseRefs(ctx context.Context, rows []idxVerseRefRow) error {
+	_ = ctx
+	for i := 0; i < len(rows); i += studyRefsBatchSize {
+		end := i + studyRefsBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{"idx": r.idxID, "v": r.verseID, "phrase": r.phrase})
+		}
+		if _, err := l.fc.Raw().Query(
+			`UNWIND $rows AS r
+			 MATCH (i:IndexEntry {id: r.idx})
+			 MATCH (v:Verse {id: r.v})
+			 CREATE (i)-[:IDX_VERSE_REF {phrase: r.phrase}]->(v)`,
+			map[string]interface{}{"rows": batch}, nil,
+		); err != nil {
+			return fmt.Errorf("creating IDX verse refs: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeSimplePairs creates a property-less relationship `relType` from every
+// (srcLabel, src.id) to (tgtLabel, tgt.id) in rows. Used for SEE_ALSO, BD_REF,
+// TG_REF, COMPARES — all edges that carry no metadata.
+func (l *Loader) writeSimplePairs(ctx context.Context, rows []simplePairRow, srcLabel, tgtLabel, relType string) error {
+	_ = ctx
+	if len(rows) == 0 {
+		return nil
+	}
+	query := fmt.Sprintf(
+		`UNWIND $rows AS r
+		 MATCH (a:%s {id: r.src})
+		 MATCH (b:%s {id: r.tgt})
+		 CREATE (a)-[:%s]->(b)`,
+		srcLabel, tgtLabel, relType,
+	)
+	for i := 0; i < len(rows); i += studyRefsBatchSize {
+		end := i + studyRefsBatchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := make([]interface{}, 0, end-i)
+		for _, r := range rows[i:end] {
+			batch = append(batch, map[string]interface{}{"src": r.srcID, "tgt": r.tgtID})
+		}
+		if _, err := l.fc.Raw().Query(query, map[string]interface{}{"rows": batch}, nil); err != nil {
+			return fmt.Errorf("creating %s edges: %w", relType, err)
+		}
+	}
+	return nil
+}
