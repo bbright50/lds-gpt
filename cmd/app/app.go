@@ -6,11 +6,9 @@ import (
 	"log/slog"
 	"os"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-
 	"lds-gpt/cmd/dataloader/config"
 	"lds-gpt/internal/app"
-	"lds-gpt/internal/bedrockembedding"
+	"lds-gpt/internal/embedding"
 	"lds-gpt/internal/falkor"
 )
 
@@ -38,12 +36,11 @@ func main() {
 	}
 	defer client.Close()
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
-	if err != nil {
-		logger.Error("aws config", "error", err)
+	if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
+		logger.Error("OLLAMA_URL and OLLAMA_MODEL are required")
 		os.Exit(1)
 	}
-	embedClient := bedrockembedding.NewClient(awsCfg)
+	embedClient := embedding.NewOllamaClient(cfg.OllamaURL, cfg.OllamaModel)
 
 	a := app.NewApp(client, embedClient)
 

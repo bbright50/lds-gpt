@@ -224,23 +224,76 @@ func (l *Loader) runEmbeddingWorkers(
 	return int(written), nil
 }
 
+// writeEmbedding runs a typed `updateXxx(where: {id: $id}, update:
+// {<prop>: $vec})` mutation. The fork-patched translator wraps the @vector
+// field in vecf32(...) on emit, so the property becomes a VectorF32 and
+// FalkorDB's vector index picks it up.
+//
+// Note: `$id` and `$vec` are variable-bound at the LEAF positions inside
+// literal input objects. If we instead bound `$where` and `$update` as
+// whole objects, go-ormql's translator would read an empty AST at those
+// positions (same limitation as nested create/connect) and emit a no-op
+// Cypher statement with neither WHERE nor SET.
 func (l *Loader) writeEmbedding(ctx context.Context, label, id, prop string, embedding []float64) error {
-	_ = ctx
-	vec := make([]interface{}, len(embedding))
+	vec := make([]any, len(embedding))
 	for i, x := range embedding {
 		vec[i] = x
 	}
-	query := fmt.Sprintf(
-		`MATCH (n:%s {id: $id})
-		 SET n.%s = vecf32($vec)`,
-		label, prop,
-	)
-	if _, err := l.fc.Raw().Query(query, map[string]interface{}{
-		"id": id, "vec": vec,
-	}, nil); err != nil {
-		return err
+
+	mutName := updateMutationName(label)
+	respField := updateResponseField(label)
+	mutationStr := fmt.Sprintf(`
+		mutation ($id: ID, $vec: [Float!]) {
+		  %s(where: { id: $id }, update: { %s: $vec }) {
+		    %s { id }
+		  }
+		}`, mutName, prop, respField)
+
+	_, err := l.fc.GraphQL().Execute(ctx, mutationStr, map[string]any{
+		"id":  id,
+		"vec": vec,
+	})
+	return err
+}
+
+// updateMutationName / updateResponseField map a node label to the
+// generator's mutation / response-field naming. go-ormql's generator
+// pluralizes the response field name (and mutation field) via go-pluralize
+// and camel-cases irregularly for acronym-led names (JST → jST).
+func updateMutationName(label string) string {
+	switch label {
+	case "VerseGroup":
+		return "updateVerseGroups"
+	case "Chapter":
+		return "updateChapters"
+	case "TopicalGuideEntry":
+		return "updateTopicalGuideEntries"
+	case "BibleDictEntry":
+		return "updateBibleDictEntries"
+	case "IndexEntry":
+		return "updateIndexEntries"
+	case "JSTPassage":
+		return "updateJSTPassages"
 	}
-	return nil
+	return ""
+}
+
+func updateResponseField(label string) string {
+	switch label {
+	case "VerseGroup":
+		return "verseGroups"
+	case "Chapter":
+		return "chapters"
+	case "TopicalGuideEntry":
+		return "topicalGuideEntries"
+	case "BibleDictEntry":
+		return "bibleDictEntries"
+	case "IndexEntry":
+		return "indexEntries"
+	case "JSTPassage":
+		return "jSTPassages"
+	}
+	return ""
 }
 
 // --- Text helpers ---

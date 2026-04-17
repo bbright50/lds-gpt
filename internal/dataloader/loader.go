@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"lds-gpt/internal/bedrockembedding"
+	"lds-gpt/internal/embedding"
 	"lds-gpt/internal/falkor"
 )
 
@@ -21,14 +21,14 @@ type Loader struct {
 	bookNames   map[string]BookInfo
 	refParser   RefParser
 	logger      *slog.Logger
-	embedClient bedrockembedding.Client
+	embedClient embedding.Client
 }
 
 // LoaderOption configures optional Loader dependencies.
 type LoaderOption func(*Loader)
 
-// WithEmbedClient attaches a Bedrock embedding client to enable Phase 6.
-func WithEmbedClient(c bedrockembedding.Client) LoaderOption {
+// WithEmbedClient attaches an embedding client to enable Phase 6.
+func WithEmbedClient(c embedding.Client) LoaderOption {
 	return func(l *Loader) { l.embedClient = c }
 }
 

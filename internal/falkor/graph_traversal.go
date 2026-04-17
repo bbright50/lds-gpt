@@ -4,16 +4,25 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/FalkorDB/falkordb-go/v2"
+	ormql "github.com/tab58/go-ormql/pkg/client"
 )
 
-// graphExpandAndDedup performs 1-hop graph traversal from each Stage 1
-// seed, assigns synthetic distances (seedDist + defaultHopPenalty), and
-// removes graph hits that duplicate a Stage 1 result.
+// Stage 2 — 1-hop graph expansion from each Stage 1 seed.
+//
+// All six traversals flow through the go-ormql generated client via
+// `Client.GraphQL().Execute(ctx, query, vars)`. Each query returns a nested
+// result that decodes into a strongly typed struct; the per-entity
+// functions then project those structs onto `SearchResult`.
+//
+// Previously TG/BD/IDX lived on raw Cypher because of the translator's
+// naive `+s` pluralization (`TopicalGuideEntry` → `topicalGuideEntrys`);
+// that bug is fixed in our local fork (see the replace directive in go.mod),
+// so every label uses the typed path again.
+
 func (c *Client) graphExpandAndDedup(ctx context.Context, stage1 []SearchResult) ([]SearchResult, error) {
 	var all []SearchResult
 	for _, seed := range stage1 {
-		neighbors, err := traverseEdges(ctx, c.Raw(), seed, defaultGraphLimit)
+		neighbors, err := c.traverseEdges(ctx, seed, defaultGraphLimit)
 		if err != nil {
 			return nil, fmt.Errorf("graph traversal (seed %s/%s): %w", seed.EntityType, seed.ID, err)
 		}
@@ -22,245 +31,297 @@ func (c *Client) graphExpandAndDedup(ctx context.Context, stage1 []SearchResult)
 	return deduplicateResults(stage1, all), nil
 }
 
-// traverseEdges dispatches to an entity-type-specific 1-hop expansion.
-func traverseEdges(ctx context.Context, g *falkordb.Graph, seed SearchResult, limit int) ([]SearchResult, error) {
+func (c *Client) traverseEdges(ctx context.Context, seed SearchResult, limit int) ([]SearchResult, error) {
 	switch seed.EntityType {
 	case EntityVerseGroup:
-		return traverseVerseGroup(ctx, g, seed.ID, limit)
+		return traverseVerseGroup(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityChapter:
-		return traverseChapter(ctx, g, seed.ID, limit)
+		return traverseChapter(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityTopicalGuide:
-		return traverseTopicalGuide(ctx, g, seed.ID, limit)
+		return traverseTopicalGuide(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityBibleDict:
-		return traverseBibleDict(ctx, g, seed.ID, limit)
+		return traverseBibleDict(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityIndex:
-		return traverseIndex(ctx, g, seed.ID, limit)
+		return traverseIndex(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityJSTPassage:
-		return traverseJSTPassage(ctx, g, seed.ID, limit)
+		return traverseJSTPassage(ctx, c.GraphQL(), seed.ID, limit)
 	case EntityVerse:
 		return nil, nil // leaf — no outbound edges
 	}
 	return nil, nil
 }
 
-// --- Per-entity 1-hop queries ---
+// --- Decode-friendly shapes. Each type-local struct mirrors the shape of
+//     one GraphQL query's response so Result.Decode can populate it. ---
 
-func traverseVerseGroup(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`MATCH (:VerseGroup {id: $id})-[:INCLUDES]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectVerses(res), nil
+type verseNode struct {
+	Id string `json:"id"`
+	Reference  string `json:"reference"`
+	Text       string `json:"text"`
+	Number     int    `json:"number"`
 }
 
-func traverseChapter(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`MATCH (:Chapter {id: $id})-[:HAS_VERSE]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return collectVerses(res), nil
+type namedNode struct {
+	Id string `json:"id"`
+	Name       string `json:"name"`
 }
 
-func traverseTopicalGuide(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	var out []SearchResult
-
-	// Verse-producing
-	if rs, err := g.Query(
-		`MATCH (:TopicalGuideEntry {id: $id})-[:TG_VERSE_REF]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("tg→verses: %w", err)
-	} else {
-		out = append(out, collectVerses(rs)...)
-	}
-
-	// See-also (TG → TG)
-	if rs, err := g.Query(
-		`MATCH (:TopicalGuideEntry {id: $id})-[:TG_SEE_ALSO]->(t:TopicalGuideEntry)
-		 RETURN t.id AS id, t.name AS name
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("tg→see_also: %w", err)
-	} else {
-		out = append(out, collectNamedNodes(rs, EntityTopicalGuide)...)
-	}
-
-	// TG → BD
-	if rs, err := g.Query(
-		`MATCH (:TopicalGuideEntry {id: $id})-[:TG_BD_REF]->(b:BibleDictEntry)
-		 RETURN b.id AS id, b.name AS name, b.text AS text
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("tg→bd_refs: %w", err)
-	} else {
-		out = append(out, collectNamedNodesWithText(rs, EntityBibleDict)...)
-	}
-
-	return out, nil
+type namedNodeWithText struct {
+	Id string `json:"id"`
+	Name       string `json:"name"`
+	Text       string `json:"text"`
 }
 
-func traverseBibleDict(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	var out []SearchResult
-
-	if rs, err := g.Query(
-		`MATCH (:BibleDictEntry {id: $id})-[:BD_VERSE_REF]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("bd→verses: %w", err)
-	} else {
-		out = append(out, collectVerses(rs)...)
-	}
-
-	if rs, err := g.Query(
-		`MATCH (:BibleDictEntry {id: $id})-[:BD_SEE_ALSO]->(b:BibleDictEntry)
-		 RETURN b.id AS id, b.name AS name, b.text AS text
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("bd→see_also: %w", err)
-	} else {
-		out = append(out, collectNamedNodesWithText(rs, EntityBibleDict)...)
-	}
-
-	return out, nil
+type verseEdge struct {
+	Node verseNode `json:"node"`
+}
+type namedEdge struct {
+	Node namedNode `json:"node"`
+}
+type namedWithTextEdge struct {
+	Node namedNodeWithText `json:"node"`
 }
 
-func traverseIndex(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	var out []SearchResult
+// --- Per-entity traversal queries ---
 
-	if rs, err := g.Query(
-		`MATCH (:IndexEntry {id: $id})-[:IDX_VERSE_REF]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("idx→verses: %w", err)
-	} else {
-		out = append(out, collectVerses(rs)...)
+func traverseVerseGroup(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		VerseGroups []struct {
+			VersesConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"versesConnection"`
+		} `json:"verseGroups"`
 	}
-
-	if rs, err := g.Query(
-		`MATCH (:IndexEntry {id: $id})-[:IDX_SEE_ALSO]->(x:IndexEntry)
-		 RETURN x.id AS id, x.name AS name
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("idx→see_also: %w", err)
-	} else {
-		out = append(out, collectNamedNodes(rs, EntityIndex)...)
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  verseGroups(where: { id: $id }) {
+		    versesConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
+		return nil, fmt.Errorf("vg→verses: %w", err)
 	}
-
-	if rs, err := g.Query(
-		`MATCH (:IndexEntry {id: $id})-[:IDX_TG_REF]->(t:TopicalGuideEntry)
-		 RETURN t.id AS id, t.name AS name
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("idx→tg_refs: %w", err)
-	} else {
-		out = append(out, collectNamedNodes(rs, EntityTopicalGuide)...)
+	if len(out.VerseGroups) == 0 {
+		return nil, nil
 	}
-
-	if rs, err := g.Query(
-		`MATCH (:IndexEntry {id: $id})-[:IDX_BD_REF]->(b:BibleDictEntry)
-		 RETURN b.id AS id, b.name AS name, b.text AS text
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	); err != nil {
-		return nil, fmt.Errorf("idx→bd_refs: %w", err)
-	} else {
-		out = append(out, collectNamedNodesWithText(rs, EntityBibleDict)...)
-	}
-
-	return out, nil
+	return versesFromEdges(out.VerseGroups[0].VersesConnection.Edges), nil
 }
 
-func traverseJSTPassage(ctx context.Context, g *falkordb.Graph, id string, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`MATCH (:JSTPassage {id: $id})-[:COMPARES]->(v:Verse)
-		 RETURN v.id AS id, v.reference AS ref, v.text AS text, v.number AS number
-		 LIMIT $limit`,
-		map[string]interface{}{"id": id, "limit": limit}, nil,
-	)
-	if err != nil {
+func traverseChapter(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		Chapters []struct {
+			VersesConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"versesConnection"`
+		} `json:"chapters"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  chapters(where: { id: $id }) {
+		    versesConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
+		return nil, fmt.Errorf("chapter→verses: %w", err)
+	}
+	if len(out.Chapters) == 0 {
+		return nil, nil
+	}
+	return versesFromEdges(out.Chapters[0].VersesConnection.Edges), nil
+}
+
+func traverseTopicalGuide(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		TopicalGuideEntries []struct {
+			VerseRefsConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"verseRefsConnection"`
+			SeeAlsoConnection struct {
+				Edges []namedEdge `json:"edges"`
+			} `json:"seeAlsoConnection"`
+			BdRefsConnection struct {
+				Edges []namedWithTextEdge `json:"edges"`
+			} `json:"bdRefsConnection"`
+		} `json:"topicalGuideEntries"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  topicalGuideEntries(where: { id: $id }) {
+		    verseRefsConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		    seeAlsoConnection(first: $first) {
+		      edges { node { id, name } }
+		    }
+		    bdRefsConnection(first: $first) {
+		      edges { node { id, name, text } }
+		    }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
+		return nil, fmt.Errorf("tg expansion: %w", err)
+	}
+	if len(out.TopicalGuideEntries) == 0 {
+		return nil, nil
+	}
+	tg := out.TopicalGuideEntries[0]
+	var results []SearchResult
+	results = append(results, versesFromEdges(tg.VerseRefsConnection.Edges)...)
+	results = append(results, namedFromEdges(tg.SeeAlsoConnection.Edges, EntityTopicalGuide)...)
+	results = append(results, namedWithTextFromEdges(tg.BdRefsConnection.Edges, EntityBibleDict)...)
+	return results, nil
+}
+
+func traverseBibleDict(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		BibleDictEntries []struct {
+			VerseRefsConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"verseRefsConnection"`
+			SeeAlsoConnection struct {
+				Edges []namedWithTextEdge `json:"edges"`
+			} `json:"seeAlsoConnection"`
+		} `json:"bibleDictEntries"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  bibleDictEntries(where: { id: $id }) {
+		    verseRefsConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		    seeAlsoConnection(first: $first) {
+		      edges { node { id, name, text } }
+		    }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
+		return nil, fmt.Errorf("bd expansion: %w", err)
+	}
+	if len(out.BibleDictEntries) == 0 {
+		return nil, nil
+	}
+	bd := out.BibleDictEntries[0]
+	var results []SearchResult
+	results = append(results, versesFromEdges(bd.VerseRefsConnection.Edges)...)
+	results = append(results, namedWithTextFromEdges(bd.SeeAlsoConnection.Edges, EntityBibleDict)...)
+	return results, nil
+}
+
+func traverseIndex(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		IndexEntries []struct {
+			VerseRefsConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"verseRefsConnection"`
+			SeeAlsoConnection struct {
+				Edges []namedEdge `json:"edges"`
+			} `json:"seeAlsoConnection"`
+			TgRefsConnection struct {
+				Edges []namedEdge `json:"edges"`
+			} `json:"tgRefsConnection"`
+			BdRefsConnection struct {
+				Edges []namedWithTextEdge `json:"edges"`
+			} `json:"bdRefsConnection"`
+		} `json:"indexEntries"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  indexEntries(where: { id: $id }) {
+		    verseRefsConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		    seeAlsoConnection(first: $first) { edges { node { id, name } } }
+		    tgRefsConnection(first: $first)   { edges { node { id, name } } }
+		    bdRefsConnection(first: $first)   { edges { node { id, name, text } } }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
+		return nil, fmt.Errorf("idx expansion: %w", err)
+	}
+	if len(out.IndexEntries) == 0 {
+		return nil, nil
+	}
+	idx := out.IndexEntries[0]
+	var results []SearchResult
+	results = append(results, versesFromEdges(idx.VerseRefsConnection.Edges)...)
+	results = append(results, namedFromEdges(idx.SeeAlsoConnection.Edges, EntityIndex)...)
+	results = append(results, namedFromEdges(idx.TgRefsConnection.Edges, EntityTopicalGuide)...)
+	results = append(results, namedWithTextFromEdges(idx.BdRefsConnection.Edges, EntityBibleDict)...)
+	return results, nil
+}
+
+func traverseJSTPassage(ctx context.Context, gc *ormql.Client, id string, limit int) ([]SearchResult, error) {
+	var out struct {
+		JSTPassages []struct {
+			CompareVersesConnection struct {
+				Edges []verseEdge `json:"edges"`
+			} `json:"compareVersesConnection"`
+		} `json:"jSTPassages"` // note: generator camel-cases "JST" → "jST"
+	}
+	if err := execQuery(ctx, gc, `
+		query ($id: ID, $first: Int) {
+		  jSTPassages(where: { id: $id }) {
+		    compareVersesConnection(first: $first) {
+		      edges { node { id, reference, text, number } }
+		    }
+		  }
+		}`, map[string]any{"id": id, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("jst→compares: %w", err)
 	}
-	return collectVerses(res), nil
+	if len(out.JSTPassages) == 0 {
+		return nil, nil
+	}
+	return versesFromEdges(out.JSTPassages[0].CompareVersesConnection.Edges), nil
 }
 
-// --- Row extractors ---
+// --- Helpers ---
 
-func collectVerses(res *falkordb.QueryResult) []SearchResult {
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		ref, _ := rec.Get("ref")
-		text, _ := rec.Get("text")
-		number, _ := rec.Get("number")
+// execQuery runs a GraphQL query through the go-ormql client and decodes
+// the response into `out`.
+func execQuery(ctx context.Context, gc *ormql.Client, query string, vars map[string]any, out any) error {
+	result, err := gc.Execute(ctx, query, vars)
+	if err != nil {
+		return err
+	}
+	return result.Decode(out)
+}
+
+func versesFromEdges(edges []verseEdge) []SearchResult {
+	out := make([]SearchResult, 0, len(edges))
+	for _, e := range edges {
 		out = append(out, SearchResult{
 			EntityType: EntityVerse,
-			ID:         asString(id),
-			Name:       asString(ref),
-			Text:       asString(text),
+			ID:         e.Node.Id,
+			Name:       e.Node.Reference,
+			Text:       e.Node.Text,
 			Metadata: ResultMeta{
-				VerseNumber: asInt(number),
-				Reference:   asString(ref),
+				VerseNumber: e.Node.Number,
+				Reference:   e.Node.Reference,
 			},
 		})
 	}
 	return out
 }
 
-func collectNamedNodes(res *falkordb.QueryResult, t EntityType) []SearchResult {
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		name, _ := rec.Get("name")
+func namedFromEdges(edges []namedEdge, t EntityType) []SearchResult {
+	out := make([]SearchResult, 0, len(edges))
+	for _, e := range edges {
 		out = append(out, SearchResult{
 			EntityType: t,
-			ID:         asString(id),
-			Name:       asString(name),
+			ID:         e.Node.Id,
+			Name:       e.Node.Name,
 		})
 	}
 	return out
 }
 
-func collectNamedNodesWithText(res *falkordb.QueryResult, t EntityType) []SearchResult {
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		name, _ := rec.Get("name")
-		text, _ := rec.Get("text")
+func namedWithTextFromEdges(edges []namedWithTextEdge, t EntityType) []SearchResult {
+	out := make([]SearchResult, 0, len(edges))
+	for _, e := range edges {
 		out = append(out, SearchResult{
 			EntityType: t,
-			ID:         asString(id),
-			Name:       asString(name),
-			Text:       asString(text),
+			ID:         e.Node.Id,
+			Name:       e.Node.Name,
+			Text:       e.Node.Text,
 		})
 	}
 	return out

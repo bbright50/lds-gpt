@@ -19,15 +19,20 @@ const (
 type Config struct {
 	Env Environment `mapstructure:"ENV"`
 
-	// AWS specific configuration
-	AWSRegion string `mapstructure:"AWS_REGION"`
-
 	Port     string `mapstructure:"SERVER_PORT"`     // the port to bind the listening server to
 	Hostname string `mapstructure:"SERVER_HOSTNAME"` // the hostname to bind the listening server to
 
 	// FalkorDB connection (Redis URL) and target graph name.
 	FalkorDBURL   string `mapstructure:"FALKORDB_URL"`
 	FalkorDBGraph string `mapstructure:"FALKORDB_GRAPH"`
+
+	// Remote Ollama server used for Phase 6 embedding and query-time embedding.
+	// The model's output dimensionality must match the 1024 hard-coded in
+	// internal/falkor/schema.graphql (`@vector(dimensions: 1024)`) — e.g.
+	// `mxbai-embed-large` or `snowflake-arctic-embed`. Picking a different
+	// dimension requires a schema update + regen + full re-embed.
+	OllamaURL   string `mapstructure:"OLLAMA_URL"`
+	OllamaModel string `mapstructure:"OLLAMA_MODEL"`
 
 	// data directory containing scraped scripture JSON files
 	DataDir string `mapstructure:"DATA_DIR"`
@@ -46,19 +51,14 @@ func bindEnvVars(cfg *Config) {
 func Load() (*Config, error) {
 	cfg := &Config{}
 
-	// pull in environment variables
+	// .env loading is owned by dotenvx at the invocation boundary (see the
+	// `dotenvx run --` wrapper in Taskfile.yml). Here we read exclusively
+	// from the process environment so there is one source of truth; running
+	// the binary directly without dotenvx still works as long as the vars
+	// are exported.
 	bindEnvVars(cfg)
-
-	// Look for .env file in current directory
-	viper.SetConfigFile(".env")
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	} else {
-		fmt.Println("config file not found, using environment variables...")
-	}
 	viper.AutomaticEnv()
 
-	// build the config object
 	err := viper.Unmarshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
@@ -95,6 +95,9 @@ func Validate(cfg *Config) error {
 	if cfg.DataDir == "" {
 		return fmt.Errorf("DATA_DIR is required")
 	}
+
+	// OLLAMA_URL / OLLAMA_MODEL are checked at the embedding call sites
+	// rather than here because `task load` (phases 1-5) does not need them.
 
 	return nil
 }

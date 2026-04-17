@@ -5,6 +5,48 @@ import "github.com/tab58/go-ormql/pkg/schema"
 var GraphModel = schema.GraphModel{
 	Nodes: []schema.NodeDefinition{
 		{
+			Name:   "Volume",
+			Labels: []string{"Volume"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "abbreviation", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+			},
+		},
+		{
+			Name:   "BibleDictEntry",
+			Labels: []string{"BibleDictEntry"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "text", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "embedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
+			},
+			VectorField: &schema.VectorFieldDefinition{
+				Name:       "embedding",
+				IndexName:  "bd_embedding",
+				Dimensions: 1024,
+				Similarity: "cosine",
+			},
+		},
+		{
+			Name:   "Chapter",
+			Labels: []string{"Chapter"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "number", GraphQLType: "Int!", GoType: "int", CypherType: "INTEGER"},
+				{Name: "summary", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+				{Name: "summaryEmbedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
+				{Name: "url", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+			},
+			VectorField: &schema.VectorFieldDefinition{
+				Name:       "summaryEmbedding",
+				IndexName:  "chapter_summary_embedding",
+				Dimensions: 1024,
+				Similarity: "cosine",
+			},
+		},
+		{
 			Name:   "VerseGroup",
 			Labels: []string{"VerseGroup"},
 			Fields: []schema.FieldDefinition{
@@ -17,6 +59,44 @@ var GraphModel = schema.GraphModel{
 			VectorField: &schema.VectorFieldDefinition{
 				Name:       "embedding",
 				IndexName:  "verse_group_embedding",
+				Dimensions: 1024,
+				Similarity: "cosine",
+			},
+		},
+		{
+			Name:   "Book",
+			Labels: []string{"Book"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "slug", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "urlPath", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+			},
+		},
+		{
+			Name:   "Verse",
+			Labels: []string{"Verse"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "number", GraphQLType: "Int!", GoType: "int", CypherType: "INTEGER"},
+				{Name: "reference", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "text", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "translationNotes", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+				{Name: "alternateReadings", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+				{Name: "explanatoryNotes", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+			},
+		},
+		{
+			Name:   "IndexEntry",
+			Labels: []string{"IndexEntry"},
+			Fields: []schema.FieldDefinition{
+				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
+				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
+				{Name: "embedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
+			},
+			VectorField: &schema.VectorFieldDefinition{
+				Name:       "embedding",
+				IndexName:  "idx_embedding",
 				Dimensions: 1024,
 				Similarity: "cosine",
 			},
@@ -42,67 +122,6 @@ var GraphModel = schema.GraphModel{
 			},
 		},
 		{
-			Name:   "Chapter",
-			Labels: []string{"Chapter"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "number", GraphQLType: "Int!", GoType: "int", CypherType: "INTEGER"},
-				{Name: "summary", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-				{Name: "summaryEmbedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
-				{Name: "url", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-			},
-			VectorField: &schema.VectorFieldDefinition{
-				Name:       "summaryEmbedding",
-				IndexName:  "chapter_summary_embedding",
-				Dimensions: 1024,
-				Similarity: "cosine",
-			},
-		},
-		{
-			Name:   "Verse",
-			Labels: []string{"Verse"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "number", GraphQLType: "Int!", GoType: "int", CypherType: "INTEGER"},
-				{Name: "reference", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "text", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "translationNotes", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-				{Name: "alternateReadings", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-				{Name: "explanatoryNotes", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-			},
-		},
-		{
-			Name:   "BibleDictEntry",
-			Labels: []string{"BibleDictEntry"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "text", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "embedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
-			},
-			VectorField: &schema.VectorFieldDefinition{
-				Name:       "embedding",
-				IndexName:  "bd_embedding",
-				Dimensions: 1024,
-				Similarity: "cosine",
-			},
-		},
-		{
-			Name:   "IndexEntry",
-			Labels: []string{"IndexEntry"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "embedding", GraphQLType: "[Float!]!", GoType: "[]float64", CypherType: "LIST<FLOAT>", IsList: true},
-			},
-			VectorField: &schema.VectorFieldDefinition{
-				Name:       "embedding",
-				IndexName:  "idx_embedding",
-				Dimensions: 1024,
-				Similarity: "cosine",
-			},
-		},
-		{
 			Name:   "TopicalGuideEntry",
 			Labels: []string{"TopicalGuideEntry"},
 			Fields: []schema.FieldDefinition{
@@ -117,47 +136,34 @@ var GraphModel = schema.GraphModel{
 				Similarity: "cosine",
 			},
 		},
-		{
-			Name:   "Volume",
-			Labels: []string{"Volume"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "abbreviation", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-			},
-		},
-		{
-			Name:   "Book",
-			Labels: []string{"Book"},
-			Fields: []schema.FieldDefinition{
-				{Name: "id", GraphQLType: "ID!", GoType: "string", CypherType: "STRING", IsID: true},
-				{Name: "name", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "slug", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-				{Name: "urlPath", GraphQLType: "String!", GoType: "string", CypherType: "STRING"},
-			},
-		},
 	},
 	Relationships: []schema.RelationshipDefinition{
 		{
-			FieldName: "chapter",
-			RelType:   "HAS_GROUP",
-			Direction: schema.DirectionIN,
-			FromNode:  "VerseGroup",
-			ToNode:    "Chapter", IsList: false,
+			FieldName: "books",
+			RelType:   "CONTAINS",
+			Direction: schema.DirectionOUT,
+			FromNode:  "Volume",
+			ToNode:    "Book", IsList: true,
 		},
 		{
-			FieldName: "verses",
-			RelType:   "INCLUDES",
+			FieldName: "seeAlso",
+			RelType:   "BD_SEE_ALSO",
 			Direction: schema.DirectionOUT,
-			FromNode:  "VerseGroup",
-			ToNode:    "Verse", IsList: true,
+			FromNode:  "BibleDictEntry",
+			ToNode:    "BibleDictEntry", IsList: true,
 		},
 		{
-			FieldName: "compareVerses",
-			RelType:   "COMPARES",
+			FieldName: "verseRefs",
+			RelType:   "BD_VERSE_REF",
 			Direction: schema.DirectionOUT,
-			FromNode:  "JSTPassage",
+			FromNode:  "BibleDictEntry",
 			ToNode:    "Verse", IsList: true,
+			Properties: &schema.PropertiesDefinition{
+				TypeName: "BDVerseRefProps",
+				Fields: []schema.FieldDefinition{
+					{Name: "targetEndVerseId", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+				},
+			},
 		},
 		{
 			FieldName: "book",
@@ -182,6 +188,34 @@ var GraphModel = schema.GraphModel{
 		},
 		{
 			FieldName: "chapter",
+			RelType:   "HAS_GROUP",
+			Direction: schema.DirectionIN,
+			FromNode:  "VerseGroup",
+			ToNode:    "Chapter", IsList: false,
+		},
+		{
+			FieldName: "verses",
+			RelType:   "INCLUDES",
+			Direction: schema.DirectionOUT,
+			FromNode:  "VerseGroup",
+			ToNode:    "Verse", IsList: true,
+		},
+		{
+			FieldName: "volume",
+			RelType:   "CONTAINS",
+			Direction: schema.DirectionIN,
+			FromNode:  "Book",
+			ToNode:    "Volume", IsList: false,
+		},
+		{
+			FieldName: "chapters",
+			RelType:   "CONTAINS",
+			Direction: schema.DirectionOUT,
+			FromNode:  "Book",
+			ToNode:    "Chapter", IsList: true,
+		},
+		{
+			FieldName: "chapter",
 			RelType:   "HAS_VERSE",
 			Direction: schema.DirectionIN,
 			FromNode:  "Verse",
@@ -199,6 +233,7 @@ var GraphModel = schema.GraphModel{
 					{Name: "category", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 					{Name: "footnoteMarker", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 					{Name: "referenceText", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+					{Name: "targetEndVerseId", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 				},
 			},
 		},
@@ -214,6 +249,7 @@ var GraphModel = schema.GraphModel{
 					{Name: "category", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 					{Name: "footnoteMarker", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 					{Name: "referenceText", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+					{Name: "targetEndVerseId", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 				},
 			},
 		},
@@ -227,6 +263,8 @@ var GraphModel = schema.GraphModel{
 				TypeName: "VerseTGRefProps",
 				Fields: []schema.FieldDefinition{
 					{Name: "footnoteMarker", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+					{Name: "tgTopicText", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
+					{Name: "referenceText", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 				},
 			},
 		},
@@ -253,26 +291,6 @@ var GraphModel = schema.GraphModel{
 				TypeName: "VerseJSTRefProps",
 				Fields: []schema.FieldDefinition{
 					{Name: "footnoteMarker", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
-				},
-			},
-		},
-		{
-			FieldName: "seeAlso",
-			RelType:   "BD_SEE_ALSO",
-			Direction: schema.DirectionOUT,
-			FromNode:  "BibleDictEntry",
-			ToNode:    "BibleDictEntry", IsList: true,
-		},
-		{
-			FieldName: "verseRefs",
-			RelType:   "BD_VERSE_REF",
-			Direction: schema.DirectionOUT,
-			FromNode:  "BibleDictEntry",
-			ToNode:    "Verse", IsList: true,
-			Properties: &schema.PropertiesDefinition{
-				TypeName: "BDVerseRefProps",
-				Fields: []schema.FieldDefinition{
-					{Name: "targetEndVerseId", GraphQLType: "String", GoType: "*string", CypherType: "STRING", Nullable: true},
 				},
 			},
 		},
@@ -311,6 +329,13 @@ var GraphModel = schema.GraphModel{
 			},
 		},
 		{
+			FieldName: "compareVerses",
+			RelType:   "COMPARES",
+			Direction: schema.DirectionOUT,
+			FromNode:  "JSTPassage",
+			ToNode:    "Verse", IsList: true,
+		},
+		{
 			FieldName: "seeAlso",
 			RelType:   "TG_SEE_ALSO",
 			Direction: schema.DirectionOUT,
@@ -337,50 +362,23 @@ var GraphModel = schema.GraphModel{
 				},
 			},
 		},
-		{
-			FieldName: "books",
-			RelType:   "CONTAINS",
-			Direction: schema.DirectionOUT,
-			FromNode:  "Volume",
-			ToNode:    "Book", IsList: true,
-		},
-		{
-			FieldName: "volume",
-			RelType:   "CONTAINS",
-			Direction: schema.DirectionIN,
-			FromNode:  "Book",
-			ToNode:    "Volume", IsList: false,
-		},
-		{
-			FieldName: "chapters",
-			RelType:   "CONTAINS",
-			Direction: schema.DirectionOUT,
-			FromNode:  "Book",
-			ToNode:    "Chapter", IsList: true,
-		},
 	},
 }
 
-var AugmentedSchemaSDL = `type VerseGroup {
+var AugmentedSchemaSDL = `type Volume {
   id: ID!
-  text: String!
-  startVerseNumber: Int!
-  endVerseNumber: Int!
-  embedding: [Float!]!
-  chapterConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): VerseGroupChapterConnection!
-  versesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): VerseGroupVersesConnection!
+  name: String!
+  abbreviation: String!
+  booksConnection(first: Int, after: String, where: BookWhere, sort: [BookSort!]): VolumeBooksConnection!
 }
 
-type JSTPassage {
+type BibleDictEntry {
   id: ID!
-  book: String!
-  chapter: String!
-  comprises: String!
-  compareRef: String
-  summary: String
+  name: String!
   text: String!
   embedding: [Float!]!
-  compareVersesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): JSTPassageCompareVersesConnection!
+  seeAlsoConnection(first: Int, after: String, where: BibleDictEntryWhere, sort: [BibleDictEntrySort!]): BibleDictEntrySeeAlsoConnection!
+  verseRefsConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): BibleDictEntryVerseRefsConnection!
 }
 
 type Chapter {
@@ -392,6 +390,25 @@ type Chapter {
   bookConnection(first: Int, after: String, where: BookWhere, sort: [BookSort!]): ChapterBookConnection!
   versesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): ChapterVersesConnection!
   verseGroupsConnection(first: Int, after: String, where: VerseGroupWhere, sort: [VerseGroupSort!]): ChapterVerseGroupsConnection!
+}
+
+type VerseGroup {
+  id: ID!
+  text: String!
+  startVerseNumber: Int!
+  endVerseNumber: Int!
+  embedding: [Float!]!
+  chapterConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): VerseGroupChapterConnection!
+  versesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): VerseGroupVersesConnection!
+}
+
+type Book {
+  id: ID!
+  name: String!
+  slug: String!
+  urlPath: String!
+  volumeConnection(first: Int, after: String, where: VolumeWhere, sort: [VolumeSort!]): BookVolumeConnection!
+  chaptersConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): BookChaptersConnection!
 }
 
 type Verse {
@@ -410,15 +427,6 @@ type Verse {
   jstFootnotesConnection(first: Int, after: String, where: JSTPassageWhere, sort: [JSTPassageSort!]): VerseJstFootnotesConnection!
 }
 
-type BibleDictEntry {
-  id: ID!
-  name: String!
-  text: String!
-  embedding: [Float!]!
-  seeAlsoConnection(first: Int, after: String, where: BibleDictEntryWhere, sort: [BibleDictEntrySort!]): BibleDictEntrySeeAlsoConnection!
-  verseRefsConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): BibleDictEntryVerseRefsConnection!
-}
-
 type IndexEntry {
   id: ID!
   name: String!
@@ -427,6 +435,18 @@ type IndexEntry {
   tgRefsConnection(first: Int, after: String, where: TopicalGuideEntryWhere, sort: [TopicalGuideEntrySort!]): IndexEntryTgRefsConnection!
   bdRefsConnection(first: Int, after: String, where: BibleDictEntryWhere, sort: [BibleDictEntrySort!]): IndexEntryBdRefsConnection!
   verseRefsConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): IndexEntryVerseRefsConnection!
+}
+
+type JSTPassage {
+  id: ID!
+  book: String!
+  chapter: String!
+  comprises: String!
+  compareRef: String
+  summary: String
+  text: String!
+  embedding: [Float!]!
+  compareVersesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): JSTPassageCompareVersesConnection!
 }
 
 type TopicalGuideEntry {
@@ -438,310 +458,212 @@ type TopicalGuideEntry {
   verseRefsConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): TopicalGuideEntryVerseRefsConnection!
 }
 
-type Volume {
-  id: ID!
+input VolumeWhere {
+  id: ID
+  id_gt: ID
+  id_gte: ID
+  id_lt: ID
+  id_lte: ID
+  id_contains: ID
+  id_startsWith: ID
+  id_endsWith: ID
+  id_regex: ID
+  id_in: [ID!]
+  id_nin: [ID!]
+  id_not: ID
+  id_isNull: Boolean
+  name: String
+  name_gt: String
+  name_gte: String
+  name_lt: String
+  name_lte: String
+  name_contains: String
+  name_startsWith: String
+  name_endsWith: String
+  name_regex: String
+  name_in: [String!]
+  name_nin: [String!]
+  name_not: String
+  name_isNull: Boolean
+  abbreviation: String
+  abbreviation_gt: String
+  abbreviation_gte: String
+  abbreviation_lt: String
+  abbreviation_lte: String
+  abbreviation_contains: String
+  abbreviation_startsWith: String
+  abbreviation_endsWith: String
+  abbreviation_regex: String
+  abbreviation_in: [String!]
+  abbreviation_nin: [String!]
+  abbreviation_not: String
+  abbreviation_isNull: Boolean
+  books_some: BookWhere
+  AND: [VolumeWhere!]
+  OR: [VolumeWhere!]
+  NOT: VolumeWhere
+}
+
+input VolumeSort {
+  id: SortDirection
+  name: SortDirection
+  abbreviation: SortDirection
+}
+
+input VolumeCreateInput {
+  id: ID
   name: String!
   abbreviation: String!
-  booksConnection(first: Int, after: String, where: BookWhere, sort: [BookSort!]): VolumeBooksConnection!
+  books: VolumeBooksFieldInput
 }
 
-type Book {
-  id: ID!
+input VolumeUpdateInput {
+  name: String
+  abbreviation: String
+  books: VolumeBooksUpdateFieldInput
+}
+
+type CreateVolumesMutationResponse {
+  volumes: [Volume!]!
+}
+
+type UpdateVolumesMutationResponse {
+  volumes: [Volume!]!
+}
+
+input VolumeMatchInput {
+  name: String
+  abbreviation: String
+}
+
+input VolumeMergeInput {
+  match: VolumeMatchInput!
+  onCreate: VolumeCreateInput
+  onMatch: VolumeUpdateInput
+}
+
+type MergeVolumesMutationResponse {
+  volumes: [Volume!]!
+}
+
+type VolumesConnection {
+  edges: [VolumeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type VolumeEdge {
+  node: Volume!
+  cursor: String!
+}
+
+input BibleDictEntryWhere {
+  id: ID
+  id_gt: ID
+  id_gte: ID
+  id_lt: ID
+  id_lte: ID
+  id_contains: ID
+  id_startsWith: ID
+  id_endsWith: ID
+  id_regex: ID
+  id_in: [ID!]
+  id_nin: [ID!]
+  id_not: ID
+  id_isNull: Boolean
+  name: String
+  name_gt: String
+  name_gte: String
+  name_lt: String
+  name_lte: String
+  name_contains: String
+  name_startsWith: String
+  name_endsWith: String
+  name_regex: String
+  name_in: [String!]
+  name_nin: [String!]
+  name_not: String
+  name_isNull: Boolean
+  text: String
+  text_gt: String
+  text_gte: String
+  text_lt: String
+  text_lte: String
+  text_contains: String
+  text_startsWith: String
+  text_endsWith: String
+  text_regex: String
+  text_in: [String!]
+  text_nin: [String!]
+  text_not: String
+  text_isNull: Boolean
+  seeAlso_some: BibleDictEntryWhere
+  verseRefs_some: VerseWhere
+  AND: [BibleDictEntryWhere!]
+  OR: [BibleDictEntryWhere!]
+  NOT: BibleDictEntryWhere
+}
+
+input BibleDictEntrySort {
+  id: SortDirection
+  name: SortDirection
+  text: SortDirection
+}
+
+input BibleDictEntryCreateInput {
+  id: ID
   name: String!
-  slug: String!
-  urlPath: String!
-  volumeConnection(first: Int, after: String, where: VolumeWhere, sort: [VolumeSort!]): BookVolumeConnection!
-  chaptersConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): BookChaptersConnection!
-}
-
-input VerseGroupWhere {
-  id: ID
-  id_gt: ID
-  id_gte: ID
-  id_lt: ID
-  id_lte: ID
-  id_contains: ID
-  id_startsWith: ID
-  id_endsWith: ID
-  id_regex: ID
-  id_in: [ID!]
-  id_nin: [ID!]
-  id_not: ID
-  id_isNull: Boolean
-  text: String
-  text_gt: String
-  text_gte: String
-  text_lt: String
-  text_lte: String
-  text_contains: String
-  text_startsWith: String
-  text_endsWith: String
-  text_regex: String
-  text_in: [String!]
-  text_nin: [String!]
-  text_not: String
-  text_isNull: Boolean
-  startVerseNumber: Int
-  startVerseNumber_gt: Int
-  startVerseNumber_gte: Int
-  startVerseNumber_lt: Int
-  startVerseNumber_lte: Int
-  startVerseNumber_in: [Int!]
-  startVerseNumber_nin: [Int!]
-  startVerseNumber_not: Int
-  startVerseNumber_isNull: Boolean
-  endVerseNumber: Int
-  endVerseNumber_gt: Int
-  endVerseNumber_gte: Int
-  endVerseNumber_lt: Int
-  endVerseNumber_lte: Int
-  endVerseNumber_in: [Int!]
-  endVerseNumber_nin: [Int!]
-  endVerseNumber_not: Int
-  endVerseNumber_isNull: Boolean
-  chapter: ChapterWhere
-  verses_some: VerseWhere
-  AND: [VerseGroupWhere!]
-  OR: [VerseGroupWhere!]
-  NOT: VerseGroupWhere
-}
-
-input VerseGroupSort {
-  id: SortDirection
-  text: SortDirection
-  startVerseNumber: SortDirection
-  endVerseNumber: SortDirection
-}
-
-input VerseGroupCreateInput {
   text: String!
-  startVerseNumber: Int!
-  endVerseNumber: Int!
   embedding: [Float!]!
-  chapter: VerseGroupChapterFieldInput
-  verses: VerseGroupVersesFieldInput
+  seeAlso: BibleDictEntrySeeAlsoFieldInput
+  verseRefs: BibleDictEntryVerseRefsFieldInput
 }
 
-input VerseGroupUpdateInput {
+input BibleDictEntryUpdateInput {
+  name: String
   text: String
-  startVerseNumber: Int
-  endVerseNumber: Int
   embedding: [Float!]
-  chapter: VerseGroupChapterUpdateFieldInput
-  verses: VerseGroupVersesUpdateFieldInput
+  seeAlso: BibleDictEntrySeeAlsoUpdateFieldInput
+  verseRefs: BibleDictEntryVerseRefsUpdateFieldInput
 }
 
-type CreateVerseGroupsMutationResponse {
-  verseGroups: [VerseGroup!]!
+type CreateBibleDictEntriesMutationResponse {
+  bibleDictEntries: [BibleDictEntry!]!
 }
 
-type UpdateVerseGroupsMutationResponse {
-  verseGroups: [VerseGroup!]!
+type UpdateBibleDictEntriesMutationResponse {
+  bibleDictEntries: [BibleDictEntry!]!
 }
 
-input VerseGroupMatchInput {
+input BibleDictEntryMatchInput {
+  name: String
   text: String
-  startVerseNumber: Int
-  endVerseNumber: Int
 }
 
-input VerseGroupMergeInput {
-  match: VerseGroupMatchInput!
-  onCreate: VerseGroupCreateInput
-  onMatch: VerseGroupUpdateInput
+input BibleDictEntryMergeInput {
+  match: BibleDictEntryMatchInput!
+  onCreate: BibleDictEntryCreateInput
+  onMatch: BibleDictEntryUpdateInput
 }
 
-type MergeVerseGroupsMutationResponse {
-  verseGroups: [VerseGroup!]!
+type MergeBibleDictEntriesMutationResponse {
+  bibleDictEntries: [BibleDictEntry!]!
 }
 
-type VerseGroupsConnection {
-  edges: [VerseGroupEdge!]!
+type BibleDictEntriesConnection {
+  edges: [BibleDictEntryEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
 
-type VerseGroupEdge {
-  node: VerseGroup!
+type BibleDictEntryEdge {
+  node: BibleDictEntry!
   cursor: String!
 }
 
-type VerseGroupSimilarResult {
+type BibleDictEntrySimilarResult {
   score: Float!
-  node: VerseGroup!
-}
-
-input JSTPassageWhere {
-  id: ID
-  id_gt: ID
-  id_gte: ID
-  id_lt: ID
-  id_lte: ID
-  id_contains: ID
-  id_startsWith: ID
-  id_endsWith: ID
-  id_regex: ID
-  id_in: [ID!]
-  id_nin: [ID!]
-  id_not: ID
-  id_isNull: Boolean
-  book: String
-  book_gt: String
-  book_gte: String
-  book_lt: String
-  book_lte: String
-  book_contains: String
-  book_startsWith: String
-  book_endsWith: String
-  book_regex: String
-  book_in: [String!]
-  book_nin: [String!]
-  book_not: String
-  book_isNull: Boolean
-  chapter: String
-  chapter_gt: String
-  chapter_gte: String
-  chapter_lt: String
-  chapter_lte: String
-  chapter_contains: String
-  chapter_startsWith: String
-  chapter_endsWith: String
-  chapter_regex: String
-  chapter_in: [String!]
-  chapter_nin: [String!]
-  chapter_not: String
-  chapter_isNull: Boolean
-  comprises: String
-  comprises_gt: String
-  comprises_gte: String
-  comprises_lt: String
-  comprises_lte: String
-  comprises_contains: String
-  comprises_startsWith: String
-  comprises_endsWith: String
-  comprises_regex: String
-  comprises_in: [String!]
-  comprises_nin: [String!]
-  comprises_not: String
-  comprises_isNull: Boolean
-  compareRef: String
-  compareRef_gt: String
-  compareRef_gte: String
-  compareRef_lt: String
-  compareRef_lte: String
-  compareRef_contains: String
-  compareRef_startsWith: String
-  compareRef_endsWith: String
-  compareRef_regex: String
-  compareRef_in: [String!]
-  compareRef_nin: [String!]
-  compareRef_not: String
-  compareRef_isNull: Boolean
-  summary: String
-  summary_gt: String
-  summary_gte: String
-  summary_lt: String
-  summary_lte: String
-  summary_contains: String
-  summary_startsWith: String
-  summary_endsWith: String
-  summary_regex: String
-  summary_in: [String!]
-  summary_nin: [String!]
-  summary_not: String
-  summary_isNull: Boolean
-  text: String
-  text_gt: String
-  text_gte: String
-  text_lt: String
-  text_lte: String
-  text_contains: String
-  text_startsWith: String
-  text_endsWith: String
-  text_regex: String
-  text_in: [String!]
-  text_nin: [String!]
-  text_not: String
-  text_isNull: Boolean
-  compareVerses_some: VerseWhere
-  AND: [JSTPassageWhere!]
-  OR: [JSTPassageWhere!]
-  NOT: JSTPassageWhere
-}
-
-input JSTPassageSort {
-  id: SortDirection
-  book: SortDirection
-  chapter: SortDirection
-  comprises: SortDirection
-  compareRef: SortDirection
-  summary: SortDirection
-  text: SortDirection
-}
-
-input JSTPassageCreateInput {
-  book: String!
-  chapter: String!
-  comprises: String!
-  compareRef: String
-  summary: String
-  text: String!
-  embedding: [Float!]!
-  compareVerses: JSTPassageCompareVersesFieldInput
-}
-
-input JSTPassageUpdateInput {
-  book: String
-  chapter: String
-  comprises: String
-  compareRef: String
-  summary: String
-  text: String
-  embedding: [Float!]
-  compareVerses: JSTPassageCompareVersesUpdateFieldInput
-}
-
-type CreateJSTPassagesMutationResponse {
-  jSTPassages: [JSTPassage!]!
-}
-
-type UpdateJSTPassagesMutationResponse {
-  jSTPassages: [JSTPassage!]!
-}
-
-input JSTPassageMatchInput {
-  book: String
-  chapter: String
-  comprises: String
-  compareRef: String
-  summary: String
-  text: String
-}
-
-input JSTPassageMergeInput {
-  match: JSTPassageMatchInput!
-  onCreate: JSTPassageCreateInput
-  onMatch: JSTPassageUpdateInput
-}
-
-type MergeJSTPassagesMutationResponse {
-  jSTPassages: [JSTPassage!]!
-}
-
-type JSTPassagesConnection {
-  edges: [JSTPassageEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type JSTPassageEdge {
-  node: JSTPassage!
-  cursor: String!
-}
-
-type JSTPassageSimilarResult {
-  score: Float!
-  node: JSTPassage!
+  node: BibleDictEntry!
 }
 
 input ChapterWhere {
@@ -809,6 +731,7 @@ input ChapterSort {
 }
 
 input ChapterCreateInput {
+  id: ID
   number: Int!
   summary: String
   summaryEmbedding: [Float!]!
@@ -866,6 +789,243 @@ type ChapterEdge {
 type ChapterSimilarResult {
   score: Float!
   node: Chapter!
+}
+
+input VerseGroupWhere {
+  id: ID
+  id_gt: ID
+  id_gte: ID
+  id_lt: ID
+  id_lte: ID
+  id_contains: ID
+  id_startsWith: ID
+  id_endsWith: ID
+  id_regex: ID
+  id_in: [ID!]
+  id_nin: [ID!]
+  id_not: ID
+  id_isNull: Boolean
+  text: String
+  text_gt: String
+  text_gte: String
+  text_lt: String
+  text_lte: String
+  text_contains: String
+  text_startsWith: String
+  text_endsWith: String
+  text_regex: String
+  text_in: [String!]
+  text_nin: [String!]
+  text_not: String
+  text_isNull: Boolean
+  startVerseNumber: Int
+  startVerseNumber_gt: Int
+  startVerseNumber_gte: Int
+  startVerseNumber_lt: Int
+  startVerseNumber_lte: Int
+  startVerseNumber_in: [Int!]
+  startVerseNumber_nin: [Int!]
+  startVerseNumber_not: Int
+  startVerseNumber_isNull: Boolean
+  endVerseNumber: Int
+  endVerseNumber_gt: Int
+  endVerseNumber_gte: Int
+  endVerseNumber_lt: Int
+  endVerseNumber_lte: Int
+  endVerseNumber_in: [Int!]
+  endVerseNumber_nin: [Int!]
+  endVerseNumber_not: Int
+  endVerseNumber_isNull: Boolean
+  chapter: ChapterWhere
+  verses_some: VerseWhere
+  AND: [VerseGroupWhere!]
+  OR: [VerseGroupWhere!]
+  NOT: VerseGroupWhere
+}
+
+input VerseGroupSort {
+  id: SortDirection
+  text: SortDirection
+  startVerseNumber: SortDirection
+  endVerseNumber: SortDirection
+}
+
+input VerseGroupCreateInput {
+  id: ID
+  text: String!
+  startVerseNumber: Int!
+  endVerseNumber: Int!
+  embedding: [Float!]!
+  chapter: VerseGroupChapterFieldInput
+  verses: VerseGroupVersesFieldInput
+}
+
+input VerseGroupUpdateInput {
+  text: String
+  startVerseNumber: Int
+  endVerseNumber: Int
+  embedding: [Float!]
+  chapter: VerseGroupChapterUpdateFieldInput
+  verses: VerseGroupVersesUpdateFieldInput
+}
+
+type CreateVerseGroupsMutationResponse {
+  verseGroups: [VerseGroup!]!
+}
+
+type UpdateVerseGroupsMutationResponse {
+  verseGroups: [VerseGroup!]!
+}
+
+input VerseGroupMatchInput {
+  text: String
+  startVerseNumber: Int
+  endVerseNumber: Int
+}
+
+input VerseGroupMergeInput {
+  match: VerseGroupMatchInput!
+  onCreate: VerseGroupCreateInput
+  onMatch: VerseGroupUpdateInput
+}
+
+type MergeVerseGroupsMutationResponse {
+  verseGroups: [VerseGroup!]!
+}
+
+type VerseGroupsConnection {
+  edges: [VerseGroupEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type VerseGroupEdge {
+  node: VerseGroup!
+  cursor: String!
+}
+
+type VerseGroupSimilarResult {
+  score: Float!
+  node: VerseGroup!
+}
+
+input BookWhere {
+  id: ID
+  id_gt: ID
+  id_gte: ID
+  id_lt: ID
+  id_lte: ID
+  id_contains: ID
+  id_startsWith: ID
+  id_endsWith: ID
+  id_regex: ID
+  id_in: [ID!]
+  id_nin: [ID!]
+  id_not: ID
+  id_isNull: Boolean
+  name: String
+  name_gt: String
+  name_gte: String
+  name_lt: String
+  name_lte: String
+  name_contains: String
+  name_startsWith: String
+  name_endsWith: String
+  name_regex: String
+  name_in: [String!]
+  name_nin: [String!]
+  name_not: String
+  name_isNull: Boolean
+  slug: String
+  slug_gt: String
+  slug_gte: String
+  slug_lt: String
+  slug_lte: String
+  slug_contains: String
+  slug_startsWith: String
+  slug_endsWith: String
+  slug_regex: String
+  slug_in: [String!]
+  slug_nin: [String!]
+  slug_not: String
+  slug_isNull: Boolean
+  urlPath: String
+  urlPath_gt: String
+  urlPath_gte: String
+  urlPath_lt: String
+  urlPath_lte: String
+  urlPath_contains: String
+  urlPath_startsWith: String
+  urlPath_endsWith: String
+  urlPath_regex: String
+  urlPath_in: [String!]
+  urlPath_nin: [String!]
+  urlPath_not: String
+  urlPath_isNull: Boolean
+  volume: VolumeWhere
+  chapters_some: ChapterWhere
+  AND: [BookWhere!]
+  OR: [BookWhere!]
+  NOT: BookWhere
+}
+
+input BookSort {
+  id: SortDirection
+  name: SortDirection
+  slug: SortDirection
+  urlPath: SortDirection
+}
+
+input BookCreateInput {
+  id: ID
+  name: String!
+  slug: String!
+  urlPath: String!
+  volume: BookVolumeFieldInput
+  chapters: BookChaptersFieldInput
+}
+
+input BookUpdateInput {
+  name: String
+  slug: String
+  urlPath: String
+  volume: BookVolumeUpdateFieldInput
+  chapters: BookChaptersUpdateFieldInput
+}
+
+type CreateBooksMutationResponse {
+  books: [Book!]!
+}
+
+type UpdateBooksMutationResponse {
+  books: [Book!]!
+}
+
+input BookMatchInput {
+  name: String
+  slug: String
+  urlPath: String
+}
+
+input BookMergeInput {
+  match: BookMatchInput!
+  onCreate: BookCreateInput
+  onMatch: BookUpdateInput
+}
+
+type MergeBooksMutationResponse {
+  books: [Book!]!
+}
+
+type BooksConnection {
+  edges: [BookEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type BookEdge {
+  node: Book!
+  cursor: String!
 }
 
 input VerseWhere {
@@ -978,6 +1138,7 @@ input VerseSort {
 }
 
 input VerseCreateInput {
+  id: ID
   number: Int!
   reference: String!
   text: String!
@@ -1045,114 +1206,6 @@ type VerseEdge {
   cursor: String!
 }
 
-input BibleDictEntryWhere {
-  id: ID
-  id_gt: ID
-  id_gte: ID
-  id_lt: ID
-  id_lte: ID
-  id_contains: ID
-  id_startsWith: ID
-  id_endsWith: ID
-  id_regex: ID
-  id_in: [ID!]
-  id_nin: [ID!]
-  id_not: ID
-  id_isNull: Boolean
-  name: String
-  name_gt: String
-  name_gte: String
-  name_lt: String
-  name_lte: String
-  name_contains: String
-  name_startsWith: String
-  name_endsWith: String
-  name_regex: String
-  name_in: [String!]
-  name_nin: [String!]
-  name_not: String
-  name_isNull: Boolean
-  text: String
-  text_gt: String
-  text_gte: String
-  text_lt: String
-  text_lte: String
-  text_contains: String
-  text_startsWith: String
-  text_endsWith: String
-  text_regex: String
-  text_in: [String!]
-  text_nin: [String!]
-  text_not: String
-  text_isNull: Boolean
-  seeAlso_some: BibleDictEntryWhere
-  verseRefs_some: VerseWhere
-  AND: [BibleDictEntryWhere!]
-  OR: [BibleDictEntryWhere!]
-  NOT: BibleDictEntryWhere
-}
-
-input BibleDictEntrySort {
-  id: SortDirection
-  name: SortDirection
-  text: SortDirection
-}
-
-input BibleDictEntryCreateInput {
-  name: String!
-  text: String!
-  embedding: [Float!]!
-  seeAlso: BibleDictEntrySeeAlsoFieldInput
-  verseRefs: BibleDictEntryVerseRefsFieldInput
-}
-
-input BibleDictEntryUpdateInput {
-  name: String
-  text: String
-  embedding: [Float!]
-  seeAlso: BibleDictEntrySeeAlsoUpdateFieldInput
-  verseRefs: BibleDictEntryVerseRefsUpdateFieldInput
-}
-
-type CreateBibleDictEntriesMutationResponse {
-  bibleDictEntries: [BibleDictEntry!]!
-}
-
-type UpdateBibleDictEntriesMutationResponse {
-  bibleDictEntries: [BibleDictEntry!]!
-}
-
-input BibleDictEntryMatchInput {
-  name: String
-  text: String
-}
-
-input BibleDictEntryMergeInput {
-  match: BibleDictEntryMatchInput!
-  onCreate: BibleDictEntryCreateInput
-  onMatch: BibleDictEntryUpdateInput
-}
-
-type MergeBibleDictEntriesMutationResponse {
-  bibleDictEntries: [BibleDictEntry!]!
-}
-
-type BibleDictEntriesConnection {
-  edges: [BibleDictEntryEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BibleDictEntryEdge {
-  node: BibleDictEntry!
-  cursor: String!
-}
-
-type BibleDictEntrySimilarResult {
-  score: Float!
-  node: BibleDictEntry!
-}
-
 input IndexEntryWhere {
   id: ID
   id_gt: ID
@@ -1195,6 +1248,7 @@ input IndexEntrySort {
 }
 
 input IndexEntryCreateInput {
+  id: ID
   name: String!
   embedding: [Float!]!
   seeAlso: IndexEntrySeeAlsoFieldInput
@@ -1250,6 +1304,180 @@ type IndexEntrySimilarResult {
   node: IndexEntry!
 }
 
+input JSTPassageWhere {
+  id: ID
+  id_gt: ID
+  id_gte: ID
+  id_lt: ID
+  id_lte: ID
+  id_contains: ID
+  id_startsWith: ID
+  id_endsWith: ID
+  id_regex: ID
+  id_in: [ID!]
+  id_nin: [ID!]
+  id_not: ID
+  id_isNull: Boolean
+  book: String
+  book_gt: String
+  book_gte: String
+  book_lt: String
+  book_lte: String
+  book_contains: String
+  book_startsWith: String
+  book_endsWith: String
+  book_regex: String
+  book_in: [String!]
+  book_nin: [String!]
+  book_not: String
+  book_isNull: Boolean
+  chapter: String
+  chapter_gt: String
+  chapter_gte: String
+  chapter_lt: String
+  chapter_lte: String
+  chapter_contains: String
+  chapter_startsWith: String
+  chapter_endsWith: String
+  chapter_regex: String
+  chapter_in: [String!]
+  chapter_nin: [String!]
+  chapter_not: String
+  chapter_isNull: Boolean
+  comprises: String
+  comprises_gt: String
+  comprises_gte: String
+  comprises_lt: String
+  comprises_lte: String
+  comprises_contains: String
+  comprises_startsWith: String
+  comprises_endsWith: String
+  comprises_regex: String
+  comprises_in: [String!]
+  comprises_nin: [String!]
+  comprises_not: String
+  comprises_isNull: Boolean
+  compareRef: String
+  compareRef_gt: String
+  compareRef_gte: String
+  compareRef_lt: String
+  compareRef_lte: String
+  compareRef_contains: String
+  compareRef_startsWith: String
+  compareRef_endsWith: String
+  compareRef_regex: String
+  compareRef_in: [String!]
+  compareRef_nin: [String!]
+  compareRef_not: String
+  compareRef_isNull: Boolean
+  summary: String
+  summary_gt: String
+  summary_gte: String
+  summary_lt: String
+  summary_lte: String
+  summary_contains: String
+  summary_startsWith: String
+  summary_endsWith: String
+  summary_regex: String
+  summary_in: [String!]
+  summary_nin: [String!]
+  summary_not: String
+  summary_isNull: Boolean
+  text: String
+  text_gt: String
+  text_gte: String
+  text_lt: String
+  text_lte: String
+  text_contains: String
+  text_startsWith: String
+  text_endsWith: String
+  text_regex: String
+  text_in: [String!]
+  text_nin: [String!]
+  text_not: String
+  text_isNull: Boolean
+  compareVerses_some: VerseWhere
+  AND: [JSTPassageWhere!]
+  OR: [JSTPassageWhere!]
+  NOT: JSTPassageWhere
+}
+
+input JSTPassageSort {
+  id: SortDirection
+  book: SortDirection
+  chapter: SortDirection
+  comprises: SortDirection
+  compareRef: SortDirection
+  summary: SortDirection
+  text: SortDirection
+}
+
+input JSTPassageCreateInput {
+  id: ID
+  book: String!
+  chapter: String!
+  comprises: String!
+  compareRef: String
+  summary: String
+  text: String!
+  embedding: [Float!]!
+  compareVerses: JSTPassageCompareVersesFieldInput
+}
+
+input JSTPassageUpdateInput {
+  book: String
+  chapter: String
+  comprises: String
+  compareRef: String
+  summary: String
+  text: String
+  embedding: [Float!]
+  compareVerses: JSTPassageCompareVersesUpdateFieldInput
+}
+
+type CreateJSTPassagesMutationResponse {
+  jSTPassages: [JSTPassage!]!
+}
+
+type UpdateJSTPassagesMutationResponse {
+  jSTPassages: [JSTPassage!]!
+}
+
+input JSTPassageMatchInput {
+  book: String
+  chapter: String
+  comprises: String
+  compareRef: String
+  summary: String
+  text: String
+}
+
+input JSTPassageMergeInput {
+  match: JSTPassageMatchInput!
+  onCreate: JSTPassageCreateInput
+  onMatch: JSTPassageUpdateInput
+}
+
+type MergeJSTPassagesMutationResponse {
+  jSTPassages: [JSTPassage!]!
+}
+
+type JSTPassagesConnection {
+  edges: [JSTPassageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type JSTPassageEdge {
+  node: JSTPassage!
+  cursor: String!
+}
+
+type JSTPassageSimilarResult {
+  score: Float!
+  node: JSTPassage!
+}
+
 input TopicalGuideEntryWhere {
   id: ID
   id_gt: ID
@@ -1291,6 +1519,7 @@ input TopicalGuideEntrySort {
 }
 
 input TopicalGuideEntryCreateInput {
+  id: ID
   name: String!
   embedding: [Float!]!
   seeAlso: TopicalGuideEntrySeeAlsoFieldInput
@@ -1344,355 +1573,155 @@ type TopicalGuideEntrySimilarResult {
   node: TopicalGuideEntry!
 }
 
-input VolumeWhere {
-  id: ID
-  id_gt: ID
-  id_gte: ID
-  id_lt: ID
-  id_lte: ID
-  id_contains: ID
-  id_startsWith: ID
-  id_endsWith: ID
-  id_regex: ID
-  id_in: [ID!]
-  id_nin: [ID!]
-  id_not: ID
-  id_isNull: Boolean
-  name: String
-  name_gt: String
-  name_gte: String
-  name_lt: String
-  name_lte: String
-  name_contains: String
-  name_startsWith: String
-  name_endsWith: String
-  name_regex: String
-  name_in: [String!]
-  name_nin: [String!]
-  name_not: String
-  name_isNull: Boolean
-  abbreviation: String
-  abbreviation_gt: String
-  abbreviation_gte: String
-  abbreviation_lt: String
-  abbreviation_lte: String
-  abbreviation_contains: String
-  abbreviation_startsWith: String
-  abbreviation_endsWith: String
-  abbreviation_regex: String
-  abbreviation_in: [String!]
-  abbreviation_nin: [String!]
-  abbreviation_not: String
-  abbreviation_isNull: Boolean
-  books_some: BookWhere
-  AND: [VolumeWhere!]
-  OR: [VolumeWhere!]
-  NOT: VolumeWhere
+input VolumeBooksFieldInput {
+  create: [VolumeBooksCreateFieldInput!]
+  connect: [VolumeBooksConnectFieldInput!]
 }
 
-input VolumeSort {
-  id: SortDirection
-  name: SortDirection
-  abbreviation: SortDirection
+input VolumeBooksCreateFieldInput {
+  node: BookCreateInput!
 }
 
-input VolumeCreateInput {
-  name: String!
-  abbreviation: String!
-  books: VolumeBooksFieldInput
+input VolumeBooksConnectFieldInput {
+  where: BookWhere
 }
 
-input VolumeUpdateInput {
-  name: String
-  abbreviation: String
-  books: VolumeBooksUpdateFieldInput
+input VolumeBooksUpdateFieldInput {
+  create: [VolumeBooksCreateFieldInput!]
+  connect: [VolumeBooksConnectFieldInput!]
+  disconnect: [VolumeBooksDisconnectFieldInput!]
+  update: VolumeBooksUpdateConnectionInput
+  delete: [VolumeBooksDeleteFieldInput!]
 }
 
-type CreateVolumesMutationResponse {
-  volumes: [Volume!]!
+input VolumeBooksDisconnectFieldInput {
+  where: BookWhere
 }
 
-type UpdateVolumesMutationResponse {
-  volumes: [Volume!]!
+input VolumeBooksDeleteFieldInput {
+  where: BookWhere
 }
 
-input VolumeMatchInput {
-  name: String
-  abbreviation: String
+input VolumeBooksUpdateConnectionInput {
+  where: BookWhere
+  node: BookUpdateInput
 }
 
-input VolumeMergeInput {
-  match: VolumeMatchInput!
-  onCreate: VolumeCreateInput
-  onMatch: VolumeUpdateInput
-}
-
-type MergeVolumesMutationResponse {
-  volumes: [Volume!]!
-}
-
-type VolumesConnection {
-  edges: [VolumeEdge!]!
+type VolumeBooksConnection {
+  edges: [VolumeBooksEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
 
-type VolumeEdge {
-  node: Volume!
-  cursor: String!
-}
-
-input BookWhere {
-  id: ID
-  id_gt: ID
-  id_gte: ID
-  id_lt: ID
-  id_lte: ID
-  id_contains: ID
-  id_startsWith: ID
-  id_endsWith: ID
-  id_regex: ID
-  id_in: [ID!]
-  id_nin: [ID!]
-  id_not: ID
-  id_isNull: Boolean
-  name: String
-  name_gt: String
-  name_gte: String
-  name_lt: String
-  name_lte: String
-  name_contains: String
-  name_startsWith: String
-  name_endsWith: String
-  name_regex: String
-  name_in: [String!]
-  name_nin: [String!]
-  name_not: String
-  name_isNull: Boolean
-  slug: String
-  slug_gt: String
-  slug_gte: String
-  slug_lt: String
-  slug_lte: String
-  slug_contains: String
-  slug_startsWith: String
-  slug_endsWith: String
-  slug_regex: String
-  slug_in: [String!]
-  slug_nin: [String!]
-  slug_not: String
-  slug_isNull: Boolean
-  urlPath: String
-  urlPath_gt: String
-  urlPath_gte: String
-  urlPath_lt: String
-  urlPath_lte: String
-  urlPath_contains: String
-  urlPath_startsWith: String
-  urlPath_endsWith: String
-  urlPath_regex: String
-  urlPath_in: [String!]
-  urlPath_nin: [String!]
-  urlPath_not: String
-  urlPath_isNull: Boolean
-  volume: VolumeWhere
-  chapters_some: ChapterWhere
-  AND: [BookWhere!]
-  OR: [BookWhere!]
-  NOT: BookWhere
-}
-
-input BookSort {
-  id: SortDirection
-  name: SortDirection
-  slug: SortDirection
-  urlPath: SortDirection
-}
-
-input BookCreateInput {
-  name: String!
-  slug: String!
-  urlPath: String!
-  volume: BookVolumeFieldInput
-  chapters: BookChaptersFieldInput
-}
-
-input BookUpdateInput {
-  name: String
-  slug: String
-  urlPath: String
-  volume: BookVolumeUpdateFieldInput
-  chapters: BookChaptersUpdateFieldInput
-}
-
-type CreateBooksMutationResponse {
-  books: [Book!]!
-}
-
-type UpdateBooksMutationResponse {
-  books: [Book!]!
-}
-
-input BookMatchInput {
-  name: String
-  slug: String
-  urlPath: String
-}
-
-input BookMergeInput {
-  match: BookMatchInput!
-  onCreate: BookCreateInput
-  onMatch: BookUpdateInput
-}
-
-type MergeBooksMutationResponse {
-  books: [Book!]!
-}
-
-type BooksConnection {
-  edges: [BookEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BookEdge {
+type VolumeBooksEdge {
   node: Book!
   cursor: String!
 }
 
-input VerseGroupChapterFieldInput {
-  create: [VerseGroupChapterCreateFieldInput!]
-  connect: [VerseGroupChapterConnectFieldInput!]
+input BibleDictEntrySeeAlsoFieldInput {
+  create: [BibleDictEntrySeeAlsoCreateFieldInput!]
+  connect: [BibleDictEntrySeeAlsoConnectFieldInput!]
 }
 
-input VerseGroupChapterCreateFieldInput {
-  node: ChapterCreateInput!
+input BibleDictEntrySeeAlsoCreateFieldInput {
+  node: BibleDictEntryCreateInput!
 }
 
-input VerseGroupChapterConnectFieldInput {
-  where: ChapterWhere
+input BibleDictEntrySeeAlsoConnectFieldInput {
+  where: BibleDictEntryWhere
 }
 
-input VerseGroupChapterUpdateFieldInput {
-  create: [VerseGroupChapterCreateFieldInput!]
-  connect: [VerseGroupChapterConnectFieldInput!]
-  disconnect: [VerseGroupChapterDisconnectFieldInput!]
-  update: VerseGroupChapterUpdateConnectionInput
-  delete: [VerseGroupChapterDeleteFieldInput!]
+input BibleDictEntrySeeAlsoUpdateFieldInput {
+  create: [BibleDictEntrySeeAlsoCreateFieldInput!]
+  connect: [BibleDictEntrySeeAlsoConnectFieldInput!]
+  disconnect: [BibleDictEntrySeeAlsoDisconnectFieldInput!]
+  update: BibleDictEntrySeeAlsoUpdateConnectionInput
+  delete: [BibleDictEntrySeeAlsoDeleteFieldInput!]
 }
 
-input VerseGroupChapterDisconnectFieldInput {
-  where: ChapterWhere
+input BibleDictEntrySeeAlsoDisconnectFieldInput {
+  where: BibleDictEntryWhere
 }
 
-input VerseGroupChapterDeleteFieldInput {
-  where: ChapterWhere
+input BibleDictEntrySeeAlsoDeleteFieldInput {
+  where: BibleDictEntryWhere
 }
 
-input VerseGroupChapterUpdateConnectionInput {
-  where: ChapterWhere
-  node: ChapterUpdateInput
+input BibleDictEntrySeeAlsoUpdateConnectionInput {
+  where: BibleDictEntryWhere
+  node: BibleDictEntryUpdateInput
 }
 
-type VerseGroupChapterConnection {
-  edges: [VerseGroupChapterEdge!]!
+type BibleDictEntrySeeAlsoConnection {
+  edges: [BibleDictEntrySeeAlsoEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
 
-type VerseGroupChapterEdge {
-  node: Chapter!
+type BibleDictEntrySeeAlsoEdge {
+  node: BibleDictEntry!
   cursor: String!
 }
 
-input VerseGroupVersesFieldInput {
-  create: [VerseGroupVersesCreateFieldInput!]
-  connect: [VerseGroupVersesConnectFieldInput!]
+input BibleDictEntryVerseRefsFieldInput {
+  create: [BibleDictEntryVerseRefsCreateFieldInput!]
+  connect: [BibleDictEntryVerseRefsConnectFieldInput!]
 }
 
-input VerseGroupVersesCreateFieldInput {
+input BibleDictEntryVerseRefsCreateFieldInput {
   node: VerseCreateInput!
+  edge: BDVerseRefPropsCreateInput
 }
 
-input VerseGroupVersesConnectFieldInput {
+input BibleDictEntryVerseRefsConnectFieldInput {
+  where: VerseWhere
+  edge: BDVerseRefPropsCreateInput
+}
+
+input BibleDictEntryVerseRefsUpdateFieldInput {
+  create: [BibleDictEntryVerseRefsCreateFieldInput!]
+  connect: [BibleDictEntryVerseRefsConnectFieldInput!]
+  disconnect: [BibleDictEntryVerseRefsDisconnectFieldInput!]
+  update: BibleDictEntryVerseRefsUpdateConnectionInput
+  delete: [BibleDictEntryVerseRefsDeleteFieldInput!]
+}
+
+input BibleDictEntryVerseRefsDisconnectFieldInput {
   where: VerseWhere
 }
 
-input VerseGroupVersesUpdateFieldInput {
-  create: [VerseGroupVersesCreateFieldInput!]
-  connect: [VerseGroupVersesConnectFieldInput!]
-  disconnect: [VerseGroupVersesDisconnectFieldInput!]
-  update: VerseGroupVersesUpdateConnectionInput
-  delete: [VerseGroupVersesDeleteFieldInput!]
-}
-
-input VerseGroupVersesDisconnectFieldInput {
+input BibleDictEntryVerseRefsDeleteFieldInput {
   where: VerseWhere
 }
 
-input VerseGroupVersesDeleteFieldInput {
-  where: VerseWhere
-}
-
-input VerseGroupVersesUpdateConnectionInput {
+input BibleDictEntryVerseRefsUpdateConnectionInput {
   where: VerseWhere
   node: VerseUpdateInput
+  edge: BDVerseRefPropsUpdateInput
 }
 
-type VerseGroupVersesConnection {
-  edges: [VerseGroupVersesEdge!]!
+type BibleDictEntryVerseRefsConnection {
+  edges: [BibleDictEntryVerseRefsEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
 
-type VerseGroupVersesEdge {
+type BibleDictEntryVerseRefsEdge {
   node: Verse!
   cursor: String!
+  properties: BDVerseRefProps
 }
 
-input JSTPassageCompareVersesFieldInput {
-  create: [JSTPassageCompareVersesCreateFieldInput!]
-  connect: [JSTPassageCompareVersesConnectFieldInput!]
+input BDVerseRefPropsCreateInput {
+  targetEndVerseId: String
 }
 
-input JSTPassageCompareVersesCreateFieldInput {
-  node: VerseCreateInput!
+input BDVerseRefPropsUpdateInput {
+  targetEndVerseId: String
 }
 
-input JSTPassageCompareVersesConnectFieldInput {
-  where: VerseWhere
-}
-
-input JSTPassageCompareVersesUpdateFieldInput {
-  create: [JSTPassageCompareVersesCreateFieldInput!]
-  connect: [JSTPassageCompareVersesConnectFieldInput!]
-  disconnect: [JSTPassageCompareVersesDisconnectFieldInput!]
-  update: JSTPassageCompareVersesUpdateConnectionInput
-  delete: [JSTPassageCompareVersesDeleteFieldInput!]
-}
-
-input JSTPassageCompareVersesDisconnectFieldInput {
-  where: VerseWhere
-}
-
-input JSTPassageCompareVersesDeleteFieldInput {
-  where: VerseWhere
-}
-
-input JSTPassageCompareVersesUpdateConnectionInput {
-  where: VerseWhere
-  node: VerseUpdateInput
-}
-
-type JSTPassageCompareVersesConnection {
-  edges: [JSTPassageCompareVersesEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type JSTPassageCompareVersesEdge {
-  node: Verse!
-  cursor: String!
+type BDVerseRefProps {
+  targetEndVerseId: String
 }
 
 input ChapterBookFieldInput {
@@ -1830,6 +1859,186 @@ type ChapterVerseGroupsEdge {
   cursor: String!
 }
 
+input VerseGroupChapterFieldInput {
+  create: [VerseGroupChapterCreateFieldInput!]
+  connect: [VerseGroupChapterConnectFieldInput!]
+}
+
+input VerseGroupChapterCreateFieldInput {
+  node: ChapterCreateInput!
+}
+
+input VerseGroupChapterConnectFieldInput {
+  where: ChapterWhere
+}
+
+input VerseGroupChapterUpdateFieldInput {
+  create: [VerseGroupChapterCreateFieldInput!]
+  connect: [VerseGroupChapterConnectFieldInput!]
+  disconnect: [VerseGroupChapterDisconnectFieldInput!]
+  update: VerseGroupChapterUpdateConnectionInput
+  delete: [VerseGroupChapterDeleteFieldInput!]
+}
+
+input VerseGroupChapterDisconnectFieldInput {
+  where: ChapterWhere
+}
+
+input VerseGroupChapterDeleteFieldInput {
+  where: ChapterWhere
+}
+
+input VerseGroupChapterUpdateConnectionInput {
+  where: ChapterWhere
+  node: ChapterUpdateInput
+}
+
+type VerseGroupChapterConnection {
+  edges: [VerseGroupChapterEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type VerseGroupChapterEdge {
+  node: Chapter!
+  cursor: String!
+}
+
+input VerseGroupVersesFieldInput {
+  create: [VerseGroupVersesCreateFieldInput!]
+  connect: [VerseGroupVersesConnectFieldInput!]
+}
+
+input VerseGroupVersesCreateFieldInput {
+  node: VerseCreateInput!
+}
+
+input VerseGroupVersesConnectFieldInput {
+  where: VerseWhere
+}
+
+input VerseGroupVersesUpdateFieldInput {
+  create: [VerseGroupVersesCreateFieldInput!]
+  connect: [VerseGroupVersesConnectFieldInput!]
+  disconnect: [VerseGroupVersesDisconnectFieldInput!]
+  update: VerseGroupVersesUpdateConnectionInput
+  delete: [VerseGroupVersesDeleteFieldInput!]
+}
+
+input VerseGroupVersesDisconnectFieldInput {
+  where: VerseWhere
+}
+
+input VerseGroupVersesDeleteFieldInput {
+  where: VerseWhere
+}
+
+input VerseGroupVersesUpdateConnectionInput {
+  where: VerseWhere
+  node: VerseUpdateInput
+}
+
+type VerseGroupVersesConnection {
+  edges: [VerseGroupVersesEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type VerseGroupVersesEdge {
+  node: Verse!
+  cursor: String!
+}
+
+input BookVolumeFieldInput {
+  create: [BookVolumeCreateFieldInput!]
+  connect: [BookVolumeConnectFieldInput!]
+}
+
+input BookVolumeCreateFieldInput {
+  node: VolumeCreateInput!
+}
+
+input BookVolumeConnectFieldInput {
+  where: VolumeWhere
+}
+
+input BookVolumeUpdateFieldInput {
+  create: [BookVolumeCreateFieldInput!]
+  connect: [BookVolumeConnectFieldInput!]
+  disconnect: [BookVolumeDisconnectFieldInput!]
+  update: BookVolumeUpdateConnectionInput
+  delete: [BookVolumeDeleteFieldInput!]
+}
+
+input BookVolumeDisconnectFieldInput {
+  where: VolumeWhere
+}
+
+input BookVolumeDeleteFieldInput {
+  where: VolumeWhere
+}
+
+input BookVolumeUpdateConnectionInput {
+  where: VolumeWhere
+  node: VolumeUpdateInput
+}
+
+type BookVolumeConnection {
+  edges: [BookVolumeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type BookVolumeEdge {
+  node: Volume!
+  cursor: String!
+}
+
+input BookChaptersFieldInput {
+  create: [BookChaptersCreateFieldInput!]
+  connect: [BookChaptersConnectFieldInput!]
+}
+
+input BookChaptersCreateFieldInput {
+  node: ChapterCreateInput!
+}
+
+input BookChaptersConnectFieldInput {
+  where: ChapterWhere
+}
+
+input BookChaptersUpdateFieldInput {
+  create: [BookChaptersCreateFieldInput!]
+  connect: [BookChaptersConnectFieldInput!]
+  disconnect: [BookChaptersDisconnectFieldInput!]
+  update: BookChaptersUpdateConnectionInput
+  delete: [BookChaptersDeleteFieldInput!]
+}
+
+input BookChaptersDisconnectFieldInput {
+  where: ChapterWhere
+}
+
+input BookChaptersDeleteFieldInput {
+  where: ChapterWhere
+}
+
+input BookChaptersUpdateConnectionInput {
+  where: ChapterWhere
+  node: ChapterUpdateInput
+}
+
+type BookChaptersConnection {
+  edges: [BookChaptersEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type BookChaptersEdge {
+  node: Chapter!
+  cursor: String!
+}
+
 input VerseChapterFieldInput {
   create: [VerseChapterCreateFieldInput!]
   connect: [VerseChapterConnectFieldInput!]
@@ -1928,18 +2137,21 @@ input VerseCrossRefPropsCreateInput {
   category: String
   footnoteMarker: String
   referenceText: String
+  targetEndVerseId: String
 }
 
 input VerseCrossRefPropsUpdateInput {
   category: String
   footnoteMarker: String
   referenceText: String
+  targetEndVerseId: String
 }
 
 type VerseCrossRefProps {
   category: String
   footnoteMarker: String
   referenceText: String
+  targetEndVerseId: String
 }
 
 input VerseCrossRefsInFieldInput {
@@ -2042,14 +2254,20 @@ type VerseTgFootnotesEdge {
 
 input VerseTGRefPropsCreateInput {
   footnoteMarker: String
+  tgTopicText: String
+  referenceText: String
 }
 
 input VerseTGRefPropsUpdateInput {
   footnoteMarker: String
+  tgTopicText: String
+  referenceText: String
 }
 
 type VerseTGRefProps {
   footnoteMarker: String
+  tgTopicText: String
+  referenceText: String
 }
 
 input VerseBdFootnotesFieldInput {
@@ -2172,112 +2390,6 @@ input VerseJSTRefPropsUpdateInput {
 
 type VerseJSTRefProps {
   footnoteMarker: String
-}
-
-input BibleDictEntrySeeAlsoFieldInput {
-  create: [BibleDictEntrySeeAlsoCreateFieldInput!]
-  connect: [BibleDictEntrySeeAlsoConnectFieldInput!]
-}
-
-input BibleDictEntrySeeAlsoCreateFieldInput {
-  node: BibleDictEntryCreateInput!
-}
-
-input BibleDictEntrySeeAlsoConnectFieldInput {
-  where: BibleDictEntryWhere
-}
-
-input BibleDictEntrySeeAlsoUpdateFieldInput {
-  create: [BibleDictEntrySeeAlsoCreateFieldInput!]
-  connect: [BibleDictEntrySeeAlsoConnectFieldInput!]
-  disconnect: [BibleDictEntrySeeAlsoDisconnectFieldInput!]
-  update: BibleDictEntrySeeAlsoUpdateConnectionInput
-  delete: [BibleDictEntrySeeAlsoDeleteFieldInput!]
-}
-
-input BibleDictEntrySeeAlsoDisconnectFieldInput {
-  where: BibleDictEntryWhere
-}
-
-input BibleDictEntrySeeAlsoDeleteFieldInput {
-  where: BibleDictEntryWhere
-}
-
-input BibleDictEntrySeeAlsoUpdateConnectionInput {
-  where: BibleDictEntryWhere
-  node: BibleDictEntryUpdateInput
-}
-
-type BibleDictEntrySeeAlsoConnection {
-  edges: [BibleDictEntrySeeAlsoEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BibleDictEntrySeeAlsoEdge {
-  node: BibleDictEntry!
-  cursor: String!
-}
-
-input BibleDictEntryVerseRefsFieldInput {
-  create: [BibleDictEntryVerseRefsCreateFieldInput!]
-  connect: [BibleDictEntryVerseRefsConnectFieldInput!]
-}
-
-input BibleDictEntryVerseRefsCreateFieldInput {
-  node: VerseCreateInput!
-  edge: BDVerseRefPropsCreateInput
-}
-
-input BibleDictEntryVerseRefsConnectFieldInput {
-  where: VerseWhere
-  edge: BDVerseRefPropsCreateInput
-}
-
-input BibleDictEntryVerseRefsUpdateFieldInput {
-  create: [BibleDictEntryVerseRefsCreateFieldInput!]
-  connect: [BibleDictEntryVerseRefsConnectFieldInput!]
-  disconnect: [BibleDictEntryVerseRefsDisconnectFieldInput!]
-  update: BibleDictEntryVerseRefsUpdateConnectionInput
-  delete: [BibleDictEntryVerseRefsDeleteFieldInput!]
-}
-
-input BibleDictEntryVerseRefsDisconnectFieldInput {
-  where: VerseWhere
-}
-
-input BibleDictEntryVerseRefsDeleteFieldInput {
-  where: VerseWhere
-}
-
-input BibleDictEntryVerseRefsUpdateConnectionInput {
-  where: VerseWhere
-  node: VerseUpdateInput
-  edge: BDVerseRefPropsUpdateInput
-}
-
-type BibleDictEntryVerseRefsConnection {
-  edges: [BibleDictEntryVerseRefsEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BibleDictEntryVerseRefsEdge {
-  node: Verse!
-  cursor: String!
-  properties: BDVerseRefProps
-}
-
-input BDVerseRefPropsCreateInput {
-  targetEndVerseId: String
-}
-
-input BDVerseRefPropsUpdateInput {
-  targetEndVerseId: String
-}
-
-type BDVerseRefProps {
-  targetEndVerseId: String
 }
 
 input IndexEntrySeeAlsoFieldInput {
@@ -2476,6 +2588,51 @@ type IDXVerseRefProps {
   phrase: String
 }
 
+input JSTPassageCompareVersesFieldInput {
+  create: [JSTPassageCompareVersesCreateFieldInput!]
+  connect: [JSTPassageCompareVersesConnectFieldInput!]
+}
+
+input JSTPassageCompareVersesCreateFieldInput {
+  node: VerseCreateInput!
+}
+
+input JSTPassageCompareVersesConnectFieldInput {
+  where: VerseWhere
+}
+
+input JSTPassageCompareVersesUpdateFieldInput {
+  create: [JSTPassageCompareVersesCreateFieldInput!]
+  connect: [JSTPassageCompareVersesConnectFieldInput!]
+  disconnect: [JSTPassageCompareVersesDisconnectFieldInput!]
+  update: JSTPassageCompareVersesUpdateConnectionInput
+  delete: [JSTPassageCompareVersesDeleteFieldInput!]
+}
+
+input JSTPassageCompareVersesDisconnectFieldInput {
+  where: VerseWhere
+}
+
+input JSTPassageCompareVersesDeleteFieldInput {
+  where: VerseWhere
+}
+
+input JSTPassageCompareVersesUpdateConnectionInput {
+  where: VerseWhere
+  node: VerseUpdateInput
+}
+
+type JSTPassageCompareVersesConnection {
+  edges: [JSTPassageCompareVersesEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type JSTPassageCompareVersesEdge {
+  node: Verse!
+  cursor: String!
+}
+
 input TopicalGuideEntrySeeAlsoFieldInput {
   create: [TopicalGuideEntrySeeAlsoCreateFieldInput!]
   connect: [TopicalGuideEntrySeeAlsoConnectFieldInput!]
@@ -2627,154 +2784,20 @@ type TGVerseRefProps {
   phrase: String
 }
 
-input VolumeBooksFieldInput {
-  create: [VolumeBooksCreateFieldInput!]
-  connect: [VolumeBooksConnectFieldInput!]
+input ConnectVolumeBooksInput {
+  from: VolumeWhere!
+  to: BookWhere!
 }
 
-input VolumeBooksCreateFieldInput {
-  node: BookCreateInput!
+input ConnectBibleDictEntrySeeAlsoInput {
+  from: BibleDictEntryWhere!
+  to: BibleDictEntryWhere!
 }
 
-input VolumeBooksConnectFieldInput {
-  where: BookWhere
-}
-
-input VolumeBooksUpdateFieldInput {
-  create: [VolumeBooksCreateFieldInput!]
-  connect: [VolumeBooksConnectFieldInput!]
-  disconnect: [VolumeBooksDisconnectFieldInput!]
-  update: VolumeBooksUpdateConnectionInput
-  delete: [VolumeBooksDeleteFieldInput!]
-}
-
-input VolumeBooksDisconnectFieldInput {
-  where: BookWhere
-}
-
-input VolumeBooksDeleteFieldInput {
-  where: BookWhere
-}
-
-input VolumeBooksUpdateConnectionInput {
-  where: BookWhere
-  node: BookUpdateInput
-}
-
-type VolumeBooksConnection {
-  edges: [VolumeBooksEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type VolumeBooksEdge {
-  node: Book!
-  cursor: String!
-}
-
-input BookVolumeFieldInput {
-  create: [BookVolumeCreateFieldInput!]
-  connect: [BookVolumeConnectFieldInput!]
-}
-
-input BookVolumeCreateFieldInput {
-  node: VolumeCreateInput!
-}
-
-input BookVolumeConnectFieldInput {
-  where: VolumeWhere
-}
-
-input BookVolumeUpdateFieldInput {
-  create: [BookVolumeCreateFieldInput!]
-  connect: [BookVolumeConnectFieldInput!]
-  disconnect: [BookVolumeDisconnectFieldInput!]
-  update: BookVolumeUpdateConnectionInput
-  delete: [BookVolumeDeleteFieldInput!]
-}
-
-input BookVolumeDisconnectFieldInput {
-  where: VolumeWhere
-}
-
-input BookVolumeDeleteFieldInput {
-  where: VolumeWhere
-}
-
-input BookVolumeUpdateConnectionInput {
-  where: VolumeWhere
-  node: VolumeUpdateInput
-}
-
-type BookVolumeConnection {
-  edges: [BookVolumeEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BookVolumeEdge {
-  node: Volume!
-  cursor: String!
-}
-
-input BookChaptersFieldInput {
-  create: [BookChaptersCreateFieldInput!]
-  connect: [BookChaptersConnectFieldInput!]
-}
-
-input BookChaptersCreateFieldInput {
-  node: ChapterCreateInput!
-}
-
-input BookChaptersConnectFieldInput {
-  where: ChapterWhere
-}
-
-input BookChaptersUpdateFieldInput {
-  create: [BookChaptersCreateFieldInput!]
-  connect: [BookChaptersConnectFieldInput!]
-  disconnect: [BookChaptersDisconnectFieldInput!]
-  update: BookChaptersUpdateConnectionInput
-  delete: [BookChaptersDeleteFieldInput!]
-}
-
-input BookChaptersDisconnectFieldInput {
-  where: ChapterWhere
-}
-
-input BookChaptersDeleteFieldInput {
-  where: ChapterWhere
-}
-
-input BookChaptersUpdateConnectionInput {
-  where: ChapterWhere
-  node: ChapterUpdateInput
-}
-
-type BookChaptersConnection {
-  edges: [BookChaptersEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type BookChaptersEdge {
-  node: Chapter!
-  cursor: String!
-}
-
-input ConnectVerseGroupChapterInput {
-  from: VerseGroupWhere!
-  to: ChapterWhere!
-}
-
-input ConnectVerseGroupVersesInput {
-  from: VerseGroupWhere!
+input ConnectBibleDictEntryVerseRefsInput {
+  from: BibleDictEntryWhere!
   to: VerseWhere!
-}
-
-input ConnectJSTPassageCompareVersesInput {
-  from: JSTPassageWhere!
-  to: VerseWhere!
+  edge: BDVerseRefPropsCreateInput
 }
 
 input ConnectChapterBookInput {
@@ -2790,6 +2813,26 @@ input ConnectChapterVersesInput {
 input ConnectChapterVerseGroupsInput {
   from: ChapterWhere!
   to: VerseGroupWhere!
+}
+
+input ConnectVerseGroupChapterInput {
+  from: VerseGroupWhere!
+  to: ChapterWhere!
+}
+
+input ConnectVerseGroupVersesInput {
+  from: VerseGroupWhere!
+  to: VerseWhere!
+}
+
+input ConnectBookVolumeInput {
+  from: BookWhere!
+  to: VolumeWhere!
+}
+
+input ConnectBookChaptersInput {
+  from: BookWhere!
+  to: ChapterWhere!
 }
 
 input ConnectVerseChapterInput {
@@ -2827,17 +2870,6 @@ input ConnectVerseJstFootnotesInput {
   edge: VerseJSTRefPropsCreateInput
 }
 
-input ConnectBibleDictEntrySeeAlsoInput {
-  from: BibleDictEntryWhere!
-  to: BibleDictEntryWhere!
-}
-
-input ConnectBibleDictEntryVerseRefsInput {
-  from: BibleDictEntryWhere!
-  to: VerseWhere!
-  edge: BDVerseRefPropsCreateInput
-}
-
 input ConnectIndexEntrySeeAlsoInput {
   from: IndexEntryWhere!
   to: IndexEntryWhere!
@@ -2859,6 +2891,11 @@ input ConnectIndexEntryVerseRefsInput {
   edge: IDXVerseRefPropsCreateInput
 }
 
+input ConnectJSTPassageCompareVersesInput {
+  from: JSTPassageWhere!
+  to: VerseWhere!
+}
+
 input ConnectTopicalGuideEntrySeeAlsoInput {
   from: TopicalGuideEntryWhere!
   to: TopicalGuideEntryWhere!
@@ -2873,21 +2910,6 @@ input ConnectTopicalGuideEntryVerseRefsInput {
   from: TopicalGuideEntryWhere!
   to: VerseWhere!
   edge: TGVerseRefPropsCreateInput
-}
-
-input ConnectVolumeBooksInput {
-  from: VolumeWhere!
-  to: BookWhere!
-}
-
-input ConnectBookVolumeInput {
-  from: BookWhere!
-  to: VolumeWhere!
-}
-
-input ConnectBookChaptersInput {
-  from: BookWhere!
-  to: ChapterWhere!
 }
 
 type DeleteInfo {
@@ -2912,93 +2934,93 @@ enum SortDirection {
 }
 
 type Query {
-  verseGroups(where: VerseGroupWhere, sort: [VerseGroupSort!]): [VerseGroup!]!
-  verseGroupsConnection(first: Int, after: String, where: VerseGroupWhere, sort: [VerseGroupSort!]): VerseGroupsConnection!
-  verseGroupsSimilar(vector: [Float!]!, first: Int = 10): [VerseGroupSimilarResult!]!
-  jSTPassages(where: JSTPassageWhere, sort: [JSTPassageSort!]): [JSTPassage!]!
-  jSTPassagesConnection(first: Int, after: String, where: JSTPassageWhere, sort: [JSTPassageSort!]): JSTPassagesConnection!
-  jSTPassagesSimilar(vector: [Float!]!, first: Int = 10): [JSTPassageSimilarResult!]!
-  chapters(where: ChapterWhere, sort: [ChapterSort!]): [Chapter!]!
-  chaptersConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): ChaptersConnection!
-  chaptersSimilar(vector: [Float!]!, first: Int = 10): [ChapterSimilarResult!]!
-  verses(where: VerseWhere, sort: [VerseSort!]): [Verse!]!
-  versesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): VersesConnection!
+  volumes(where: VolumeWhere, sort: [VolumeSort!]): [Volume!]!
+  volumesConnection(first: Int, after: String, where: VolumeWhere, sort: [VolumeSort!]): VolumesConnection!
   bibleDictEntries(where: BibleDictEntryWhere, sort: [BibleDictEntrySort!]): [BibleDictEntry!]!
   bibleDictEntriesConnection(first: Int, after: String, where: BibleDictEntryWhere, sort: [BibleDictEntrySort!]): BibleDictEntriesConnection!
   bibleDictEntriesSimilar(vector: [Float!]!, first: Int = 10): [BibleDictEntrySimilarResult!]!
+  chapters(where: ChapterWhere, sort: [ChapterSort!]): [Chapter!]!
+  chaptersConnection(first: Int, after: String, where: ChapterWhere, sort: [ChapterSort!]): ChaptersConnection!
+  chaptersSimilar(vector: [Float!]!, first: Int = 10): [ChapterSimilarResult!]!
+  verseGroups(where: VerseGroupWhere, sort: [VerseGroupSort!]): [VerseGroup!]!
+  verseGroupsConnection(first: Int, after: String, where: VerseGroupWhere, sort: [VerseGroupSort!]): VerseGroupsConnection!
+  verseGroupsSimilar(vector: [Float!]!, first: Int = 10): [VerseGroupSimilarResult!]!
+  books(where: BookWhere, sort: [BookSort!]): [Book!]!
+  booksConnection(first: Int, after: String, where: BookWhere, sort: [BookSort!]): BooksConnection!
+  verses(where: VerseWhere, sort: [VerseSort!]): [Verse!]!
+  versesConnection(first: Int, after: String, where: VerseWhere, sort: [VerseSort!]): VersesConnection!
   indexEntries(where: IndexEntryWhere, sort: [IndexEntrySort!]): [IndexEntry!]!
   indexEntriesConnection(first: Int, after: String, where: IndexEntryWhere, sort: [IndexEntrySort!]): IndexEntriesConnection!
   indexEntriesSimilar(vector: [Float!]!, first: Int = 10): [IndexEntrySimilarResult!]!
+  jSTPassages(where: JSTPassageWhere, sort: [JSTPassageSort!]): [JSTPassage!]!
+  jSTPassagesConnection(first: Int, after: String, where: JSTPassageWhere, sort: [JSTPassageSort!]): JSTPassagesConnection!
+  jSTPassagesSimilar(vector: [Float!]!, first: Int = 10): [JSTPassageSimilarResult!]!
   topicalGuideEntries(where: TopicalGuideEntryWhere, sort: [TopicalGuideEntrySort!]): [TopicalGuideEntry!]!
   topicalGuideEntriesConnection(first: Int, after: String, where: TopicalGuideEntryWhere, sort: [TopicalGuideEntrySort!]): TopicalGuideEntriesConnection!
   topicalGuideEntriesSimilar(vector: [Float!]!, first: Int = 10): [TopicalGuideEntrySimilarResult!]!
-  volumes(where: VolumeWhere, sort: [VolumeSort!]): [Volume!]!
-  volumesConnection(first: Int, after: String, where: VolumeWhere, sort: [VolumeSort!]): VolumesConnection!
-  books(where: BookWhere, sort: [BookSort!]): [Book!]!
-  booksConnection(first: Int, after: String, where: BookWhere, sort: [BookSort!]): BooksConnection!
 }
 
 type Mutation {
-  createVerseGroups(input: [VerseGroupCreateInput!]!): CreateVerseGroupsMutationResponse!
-  updateVerseGroups(where: VerseGroupWhere, update: VerseGroupUpdateInput): UpdateVerseGroupsMutationResponse!
-  deleteVerseGroups(where: VerseGroupWhere): DeleteInfo!
-  mergeVerseGroups(input: [VerseGroupMergeInput!]!): MergeVerseGroupsMutationResponse!
-  createJSTPassages(input: [JSTPassageCreateInput!]!): CreateJSTPassagesMutationResponse!
-  updateJSTPassages(where: JSTPassageWhere, update: JSTPassageUpdateInput): UpdateJSTPassagesMutationResponse!
-  deleteJSTPassages(where: JSTPassageWhere): DeleteInfo!
-  mergeJSTPassages(input: [JSTPassageMergeInput!]!): MergeJSTPassagesMutationResponse!
-  createChapters(input: [ChapterCreateInput!]!): CreateChaptersMutationResponse!
-  updateChapters(where: ChapterWhere, update: ChapterUpdateInput): UpdateChaptersMutationResponse!
-  deleteChapters(where: ChapterWhere): DeleteInfo!
-  mergeChapters(input: [ChapterMergeInput!]!): MergeChaptersMutationResponse!
-  createVerses(input: [VerseCreateInput!]!): CreateVersesMutationResponse!
-  updateVerses(where: VerseWhere, update: VerseUpdateInput): UpdateVersesMutationResponse!
-  deleteVerses(where: VerseWhere): DeleteInfo!
-  mergeVerses(input: [VerseMergeInput!]!): MergeVersesMutationResponse!
-  createBibleDictEntries(input: [BibleDictEntryCreateInput!]!): CreateBibleDictEntriesMutationResponse!
-  updateBibleDictEntries(where: BibleDictEntryWhere, update: BibleDictEntryUpdateInput): UpdateBibleDictEntriesMutationResponse!
-  deleteBibleDictEntries(where: BibleDictEntryWhere): DeleteInfo!
-  mergeBibleDictEntries(input: [BibleDictEntryMergeInput!]!): MergeBibleDictEntriesMutationResponse!
-  createIndexEntries(input: [IndexEntryCreateInput!]!): CreateIndexEntriesMutationResponse!
-  updateIndexEntries(where: IndexEntryWhere, update: IndexEntryUpdateInput): UpdateIndexEntriesMutationResponse!
-  deleteIndexEntries(where: IndexEntryWhere): DeleteInfo!
-  mergeIndexEntries(input: [IndexEntryMergeInput!]!): MergeIndexEntriesMutationResponse!
-  createTopicalGuideEntries(input: [TopicalGuideEntryCreateInput!]!): CreateTopicalGuideEntriesMutationResponse!
-  updateTopicalGuideEntries(where: TopicalGuideEntryWhere, update: TopicalGuideEntryUpdateInput): UpdateTopicalGuideEntriesMutationResponse!
-  deleteTopicalGuideEntries(where: TopicalGuideEntryWhere): DeleteInfo!
-  mergeTopicalGuideEntries(input: [TopicalGuideEntryMergeInput!]!): MergeTopicalGuideEntriesMutationResponse!
   createVolumes(input: [VolumeCreateInput!]!): CreateVolumesMutationResponse!
   updateVolumes(where: VolumeWhere, update: VolumeUpdateInput): UpdateVolumesMutationResponse!
   deleteVolumes(where: VolumeWhere): DeleteInfo!
   mergeVolumes(input: [VolumeMergeInput!]!): MergeVolumesMutationResponse!
+  createBibleDictEntries(input: [BibleDictEntryCreateInput!]!): CreateBibleDictEntriesMutationResponse!
+  updateBibleDictEntries(where: BibleDictEntryWhere, update: BibleDictEntryUpdateInput): UpdateBibleDictEntriesMutationResponse!
+  deleteBibleDictEntries(where: BibleDictEntryWhere): DeleteInfo!
+  mergeBibleDictEntries(input: [BibleDictEntryMergeInput!]!): MergeBibleDictEntriesMutationResponse!
+  createChapters(input: [ChapterCreateInput!]!): CreateChaptersMutationResponse!
+  updateChapters(where: ChapterWhere, update: ChapterUpdateInput): UpdateChaptersMutationResponse!
+  deleteChapters(where: ChapterWhere): DeleteInfo!
+  mergeChapters(input: [ChapterMergeInput!]!): MergeChaptersMutationResponse!
+  createVerseGroups(input: [VerseGroupCreateInput!]!): CreateVerseGroupsMutationResponse!
+  updateVerseGroups(where: VerseGroupWhere, update: VerseGroupUpdateInput): UpdateVerseGroupsMutationResponse!
+  deleteVerseGroups(where: VerseGroupWhere): DeleteInfo!
+  mergeVerseGroups(input: [VerseGroupMergeInput!]!): MergeVerseGroupsMutationResponse!
   createBooks(input: [BookCreateInput!]!): CreateBooksMutationResponse!
   updateBooks(where: BookWhere, update: BookUpdateInput): UpdateBooksMutationResponse!
   deleteBooks(where: BookWhere): DeleteInfo!
   mergeBooks(input: [BookMergeInput!]!): MergeBooksMutationResponse!
-  connectVerseGroupChapter(input: [ConnectVerseGroupChapterInput!]!): ConnectInfo!
-  connectVerseGroupVerses(input: [ConnectVerseGroupVersesInput!]!): ConnectInfo!
-  connectJSTPassageCompareVerses(input: [ConnectJSTPassageCompareVersesInput!]!): ConnectInfo!
+  createVerses(input: [VerseCreateInput!]!): CreateVersesMutationResponse!
+  updateVerses(where: VerseWhere, update: VerseUpdateInput): UpdateVersesMutationResponse!
+  deleteVerses(where: VerseWhere): DeleteInfo!
+  mergeVerses(input: [VerseMergeInput!]!): MergeVersesMutationResponse!
+  createIndexEntries(input: [IndexEntryCreateInput!]!): CreateIndexEntriesMutationResponse!
+  updateIndexEntries(where: IndexEntryWhere, update: IndexEntryUpdateInput): UpdateIndexEntriesMutationResponse!
+  deleteIndexEntries(where: IndexEntryWhere): DeleteInfo!
+  mergeIndexEntries(input: [IndexEntryMergeInput!]!): MergeIndexEntriesMutationResponse!
+  createJSTPassages(input: [JSTPassageCreateInput!]!): CreateJSTPassagesMutationResponse!
+  updateJSTPassages(where: JSTPassageWhere, update: JSTPassageUpdateInput): UpdateJSTPassagesMutationResponse!
+  deleteJSTPassages(where: JSTPassageWhere): DeleteInfo!
+  mergeJSTPassages(input: [JSTPassageMergeInput!]!): MergeJSTPassagesMutationResponse!
+  createTopicalGuideEntries(input: [TopicalGuideEntryCreateInput!]!): CreateTopicalGuideEntriesMutationResponse!
+  updateTopicalGuideEntries(where: TopicalGuideEntryWhere, update: TopicalGuideEntryUpdateInput): UpdateTopicalGuideEntriesMutationResponse!
+  deleteTopicalGuideEntries(where: TopicalGuideEntryWhere): DeleteInfo!
+  mergeTopicalGuideEntries(input: [TopicalGuideEntryMergeInput!]!): MergeTopicalGuideEntriesMutationResponse!
+  connectVolumeBooks(input: [ConnectVolumeBooksInput!]!): ConnectInfo!
+  connectBibleDictEntrySeeAlso(input: [ConnectBibleDictEntrySeeAlsoInput!]!): ConnectInfo!
+  connectBibleDictEntryVerseRefs(input: [ConnectBibleDictEntryVerseRefsInput!]!): ConnectInfo!
   connectChapterBook(input: [ConnectChapterBookInput!]!): ConnectInfo!
   connectChapterVerses(input: [ConnectChapterVersesInput!]!): ConnectInfo!
   connectChapterVerseGroups(input: [ConnectChapterVerseGroupsInput!]!): ConnectInfo!
+  connectVerseGroupChapter(input: [ConnectVerseGroupChapterInput!]!): ConnectInfo!
+  connectVerseGroupVerses(input: [ConnectVerseGroupVersesInput!]!): ConnectInfo!
+  connectBookVolume(input: [ConnectBookVolumeInput!]!): ConnectInfo!
+  connectBookChapters(input: [ConnectBookChaptersInput!]!): ConnectInfo!
   connectVerseChapter(input: [ConnectVerseChapterInput!]!): ConnectInfo!
   connectVerseCrossRefsOut(input: [ConnectVerseCrossRefsOutInput!]!): ConnectInfo!
   connectVerseCrossRefsIn(input: [ConnectVerseCrossRefsInInput!]!): ConnectInfo!
   connectVerseTgFootnotes(input: [ConnectVerseTgFootnotesInput!]!): ConnectInfo!
   connectVerseBdFootnotes(input: [ConnectVerseBdFootnotesInput!]!): ConnectInfo!
   connectVerseJstFootnotes(input: [ConnectVerseJstFootnotesInput!]!): ConnectInfo!
-  connectBibleDictEntrySeeAlso(input: [ConnectBibleDictEntrySeeAlsoInput!]!): ConnectInfo!
-  connectBibleDictEntryVerseRefs(input: [ConnectBibleDictEntryVerseRefsInput!]!): ConnectInfo!
   connectIndexEntrySeeAlso(input: [ConnectIndexEntrySeeAlsoInput!]!): ConnectInfo!
   connectIndexEntryTgRefs(input: [ConnectIndexEntryTgRefsInput!]!): ConnectInfo!
   connectIndexEntryBdRefs(input: [ConnectIndexEntryBdRefsInput!]!): ConnectInfo!
   connectIndexEntryVerseRefs(input: [ConnectIndexEntryVerseRefsInput!]!): ConnectInfo!
+  connectJSTPassageCompareVerses(input: [ConnectJSTPassageCompareVersesInput!]!): ConnectInfo!
   connectTopicalGuideEntrySeeAlso(input: [ConnectTopicalGuideEntrySeeAlsoInput!]!): ConnectInfo!
   connectTopicalGuideEntryBdRefs(input: [ConnectTopicalGuideEntryBdRefsInput!]!): ConnectInfo!
   connectTopicalGuideEntryVerseRefs(input: [ConnectTopicalGuideEntryVerseRefsInput!]!): ConnectInfo!
-  connectVolumeBooks(input: [ConnectVolumeBooksInput!]!): ConnectInfo!
-  connectBookVolume(input: [ConnectBookVolumeInput!]!): ConnectInfo!
-  connectBookChapters(input: [ConnectBookChaptersInput!]!): ConnectInfo!
 }
 
 `

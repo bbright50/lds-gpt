@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/FalkorDB/falkordb-go/v2"
 	"golang.org/x/sync/errgroup"
+
+	ormql "github.com/tab58/go-ormql/pkg/client"
 )
 
 type contextSearchOptions struct {
@@ -22,19 +23,17 @@ func WithKNN(kNN int) ContextSearchOption {
 // DoContextualSearch runs the three-stage retrieval pipeline:
 //
 //  1. Parallel vector similarity kNN across the six embeddable node labels
-//     (VerseGroup, Chapter.summaryEmbedding, TopicalGuideEntry, BibleDictEntry,
-//     IndexEntry, JSTPassage).
-//  2. One-hop graph expansion from each Stage 1 seed, with a synthetic
-//     distance bump (defaultHopPenalty) and deduplication against Stage 1.
-//  3. Heuristic re-ranking (`rankScore = distance - verseBonus`) and trim to
-//     kNN.
+//     (VerseGroup, Chapter.summaryEmbedding, TopicalGuideEntry,
+//     BibleDictEntry, IndexEntry, JSTPassage). Each label fires a typed
+//     `xxxSimilar(vector:, first:)` GraphQL query through the go-ormql
+//     generated client; the fork-patched FalkorDB driver rewrites the
+//     translator output to `CALL db.idx.vector.queryNodes(..., vecf32(...))`.
+//  2. One-hop graph expansion from each Stage 1 seed, synthetic-distance
+//     bumped and deduplicated against Stage 1.
+//  3. Heuristic re-ranking (`rankScore = distance - verseBonus`) and trim
+//     to kNN.
 //
-// The embedding is `[]float32` — FalkorDB's `vecf32()` constructor accepts
-// floats directly so the byte-packing used by the prior LibSQL client is
-// gone. Stage 1 flows through `Client.Raw()` because go-ormql's @vector
-// query rewrite has a known bug (missing vecf32() wrap on the vector param);
-// Stage 2 flows through `Client.GraphQL()` because graph traversal is the
-// shape go-ormql handles well.
+// Embedding is `[]float32` — FalkorDB's `vecf32()` takes floats directly.
 func (c *Client) DoContextualSearch(
 	ctx context.Context,
 	embedding []float32,
@@ -73,11 +72,11 @@ func (c *Client) DoContextualSearch(
 	return ranked, nil
 }
 
-// --- Stage 1: six parallel kNN queries via raw Cypher ---
+// --- Stage 1: six parallel kNN queries via the typed go-ormql client ---
 
-type searchFn func(ctx context.Context, g *falkordb.Graph, vecParam []interface{}, limit int) ([]SearchResult, error)
+type searchFn func(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error)
 
-func (c *Client) runParallelSearches(ctx context.Context, vecParam []interface{}) ([]SearchResult, error) {
+func (c *Client) runParallelSearches(ctx context.Context, vec []any) ([]SearchResult, error) {
 	searches := []searchFn{
 		searchVerseGroups,
 		searchChapters,
@@ -91,7 +90,7 @@ func (c *Client) runParallelSearches(ctx context.Context, vecParam []interface{}
 	for _, fn := range searches {
 		fn := fn
 		g.Go(func() error {
-			rs, err := fn(gctx, c.Raw(), vecParam, defaultSearchLimit)
+			rs, err := fn(gctx, c.GraphQL(), vec, defaultSearchLimit)
 			if err != nil {
 				return err
 			}
@@ -111,203 +110,217 @@ func (c *Client) runParallelSearches(ctx context.Context, vecParam []interface{}
 	return stage1, nil
 }
 
-func searchVerseGroups(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('VerseGroup', 'embedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.text AS text,
-		        node.startVerseNumber AS startNum, node.endVerseNumber AS endNum,
-		        score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+// similarHit is the decode shape for the six xxxSimilar queries — the
+// generator produces a `{ score: Float!, node: <NodeType>! }` envelope.
+type similarHit[T any] struct {
+	Score float64 `json:"score"`
+	Node  T       `json:"node"`
+}
+
+type verseGroupHit struct {
+	Id       string `json:"id"`
+	Text             string `json:"text"`
+	StartVerseNumber int    `json:"startVerseNumber"`
+	EndVerseNumber   int    `json:"endVerseNumber"`
+}
+
+func searchVerseGroups(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[verseGroupHit] `json:"verseGroupsSimilar"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  verseGroupsSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, text, startVerseNumber, endVerseNumber }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchVerseGroups: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		text, _ := rec.Get("text")
-		startNum, _ := rec.Get("startNum")
-		endNum, _ := rec.Get("endNum")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityVerseGroup,
-			ID:         asString(id),
-			Text:       asString(text),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Text:       h.Node.Text,
+			Distance:   h.Score,
 			Metadata: ResultMeta{
-				StartVerseNumber: asInt(startNum),
-				EndVerseNumber:   asInt(endNum),
+				StartVerseNumber: h.Node.StartVerseNumber,
+				EndVerseNumber:   h.Node.EndVerseNumber,
 			},
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
-func searchChapters(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('Chapter', 'summaryEmbedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.number AS number, node.summary AS summary, node.url AS url, score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+type chapterHit struct {
+	Id string `json:"id"`
+	Number     int    `json:"number"`
+	Summary    string `json:"summary"`
+	URL        string `json:"url"`
+}
+
+func searchChapters(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[chapterHit] `json:"chaptersSimilar"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  chaptersSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, number, summary, url }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchChapters: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		number, _ := rec.Get("number")
-		summary, _ := rec.Get("summary")
-		url, _ := rec.Get("url")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityChapter,
-			ID:         asString(id),
-			Text:       asString(summary),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Text:       h.Node.Summary,
+			Distance:   h.Score,
 			Metadata: ResultMeta{
-				ChapterNumber: asInt(number),
-				URL:           asString(url),
+				ChapterNumber: h.Node.Number,
+				URL:           h.Node.URL,
 			},
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
-func searchTopicalGuide(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('TopicalGuideEntry', 'embedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.name AS name, score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+type tgHit struct {
+	Id string `json:"id"`
+	Name       string `json:"name"`
+}
+
+func searchTopicalGuide(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[tgHit] `json:"topicalGuideEntriesSimilar"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  topicalGuideEntriesSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, name }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchTopicalGuide: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		name, _ := rec.Get("name")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityTopicalGuide,
-			ID:         asString(id),
-			Name:       asString(name),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Name:       h.Node.Name,
+			Distance:   h.Score,
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
-func searchBibleDict(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('BibleDictEntry', 'embedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.name AS name, node.text AS text, score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+type bdHit struct {
+	Id string `json:"id"`
+	Name       string `json:"name"`
+	Text       string `json:"text"`
+}
+
+func searchBibleDict(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[bdHit] `json:"bibleDictEntriesSimilar"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  bibleDictEntriesSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, name, text }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchBibleDict: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		name, _ := rec.Get("name")
-		text, _ := rec.Get("text")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityBibleDict,
-			ID:         asString(id),
-			Name:       asString(name),
-			Text:       asString(text),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Name:       h.Node.Name,
+			Text:       h.Node.Text,
+			Distance:   h.Score,
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
-func searchIndex(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('IndexEntry', 'embedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.name AS name, score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+type idxHit struct {
+	Id string `json:"id"`
+	Name       string `json:"name"`
+}
+
+func searchIndex(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[idxHit] `json:"indexEntriesSimilar"`
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  indexEntriesSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, name }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchIndex: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		name, _ := rec.Get("name")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityIndex,
-			ID:         asString(id),
-			Name:       asString(name),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Name:       h.Node.Name,
+			Distance:   h.Score,
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
-func searchJSTPassages(ctx context.Context, g *falkordb.Graph, vec []interface{}, limit int) ([]SearchResult, error) {
-	_ = ctx
-	res, err := g.Query(
-		`CALL db.idx.vector.queryNodes('JSTPassage', 'embedding', $k, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, node.book AS book, node.chapter AS chapter,
-		        node.comprises AS comprises, node.compareRef AS compareRef,
-		        node.summary AS summary, node.text AS text,
-		        score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": vec, "k": limit}, nil,
-	)
-	if err != nil {
+type jstHit struct {
+	Id string `json:"id"`
+	Book       string `json:"book"`
+	Chapter    string `json:"chapter"`
+	Comprises  string `json:"comprises"`
+	CompareRef string `json:"compareRef"`
+	Summary    string `json:"summary"`
+	Text       string `json:"text"`
+}
+
+func searchJSTPassages(ctx context.Context, gc *ormql.Client, vec []any, limit int) ([]SearchResult, error) {
+	var out struct {
+		Hits []similarHit[jstHit] `json:"jSTPassagesSimilar"` // generator camelCase: "JST" → "jST"
+	}
+	if err := execQuery(ctx, gc, `
+		query ($vec: [Float!]!, $first: Int) {
+		  jSTPassagesSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id, book, chapter, comprises, compareRef, summary, text }
+		  }
+		}`, map[string]any{"vec": vec, "first": limit}, &out); err != nil {
 		return nil, fmt.Errorf("searchJSTPassages: %w", err)
 	}
-	var out []SearchResult
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.Get("id")
-		book, _ := rec.Get("book")
-		chapter, _ := rec.Get("chapter")
-		comprises, _ := rec.Get("comprises")
-		compareRef, _ := rec.Get("compareRef")
-		summary, _ := rec.Get("summary")
-		text, _ := rec.Get("text")
-		score, _ := rec.Get("score")
-		out = append(out, SearchResult{
+	results := make([]SearchResult, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		results = append(results, SearchResult{
 			EntityType: EntityJSTPassage,
-			ID:         asString(id),
-			Text:       asString(text),
-			Distance:   asFloat(score),
+			ID:         h.Node.Id,
+			Text:       h.Node.Text,
+			Distance:   h.Score,
 			Metadata: ResultMeta{
-				Book:       asString(book),
-				Chapter:    asString(chapter),
-				Comprises:  asString(comprises),
-				CompareRef: asString(compareRef),
-				Summary:    asString(summary),
+				Book:       h.Node.Book,
+				Chapter:    h.Node.Chapter,
+				Comprises:  h.Node.Comprises,
+				CompareRef: h.Node.CompareRef,
+				Summary:    h.Node.Summary,
 			},
 		})
 	}
-	return out, nil
+	return results, nil
 }
 
 // --- Helpers ---
@@ -317,40 +330,8 @@ func float32sToAnySlice(v []float32) []interface{} {
 	for i, x := range v {
 		// Pass as float64 — falkordb-go's ToString serializes via
 		// strconv.FormatFloat('f', -1, 64) which correctly preserves decimal
-		// points for non-integer values. See Phase-B writeup in search.md.
+		// points for non-integer values.
 		out[i] = float64(x)
 	}
 	return out
-}
-
-// asString / asInt / asFloat pull typed values out of FalkorDB's
-// map[string]any Records with forgiving fallbacks (the driver returns nil
-// for missing props).
-func asString(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-func asInt(v any) int {
-	switch n := v.(type) {
-	case int64:
-		return int(n)
-	case int:
-		return n
-	case float64:
-		return int(n)
-	}
-	return 0
-}
-func asFloat(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int64:
-		return float64(n)
-	case int:
-		return float64(n)
-	}
-	return 0
 }

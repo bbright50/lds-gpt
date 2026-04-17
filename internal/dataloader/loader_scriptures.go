@@ -12,36 +12,44 @@ import (
 )
 
 // Phase 1 — create Volume/Book/Chapter/Verse nodes and structural
-// relationships. Writes go through the raw FalkorDB handle because
-// Chapter.summaryEmbedding is an @vector non-null in the GraphQL schema and
-// embeddings do not exist yet at this phase. Phase 6 backfills embeddings
-// via `SET n.summaryEmbedding = vecf32(...)` — see loader_embeddings.go.
+// relationships via typed `createXxx` mutations. Each row's map includes a
+// `connect` payload for its parent edge (e.g. Book.volume →
+// `{connect: [{where: {id: "vol/ot"}}]}`). The fork-patched translator
+// emits a runtime `UNWIND coalesce(item.<field>.connect, [])` block per
+// relationship so node creation and edge wiring land in one round-trip.
+// Auto-chunker handles sub-batching at 500/batch.
 //
-// IDs are deterministic strings (e.g. "v/ot/gen/1/5") so Phases 3–5 can
-// build relationships without round-tripping FalkorDB for a MATCH...RETURN id.
+// Chapter.summaryEmbedding is a required @vector field. Phase 1 writes a
+// fractional-zeros placeholder at create time; Phase 6 upgrades via
+// typed updateXxx + fork-patched vecf32 auto-wrap. FalkorDB's vector index
+// ignores plain-list property values (per spike), so placeholders don't
+// pollute kNN.
+//
+// IDs are deterministic strings supplied by the caller ("v/ot/gen/1/5");
+// the fork-patched generator accepts `id` as optional CreateInput and
+// `SET n.id = coalesce(item.id, randomUUID())` preserves that default for
+// anyone who omits it.
 
 // loadScriptures implements Phase 1.
 func (l *Loader) loadScriptures(ctx context.Context) (VerseIndex, error) {
 	verseIndex := NewVerseIndex()
-	graph := l.fc.Raw()
 
-	// Volumes: one round-trip for all five.
-	volRows := make([]interface{}, 0, len(volumeAbbreviations))
+	// One walk over the data directory to accumulate row slices for each
+	// node type. Four typed bulk mutations at the end.
+	volRows := make([]any, 0, len(volumeAbbreviations))
 	for _, abbrev := range volumeAbbreviations {
-		volRows = append(volRows, map[string]interface{}{
+		volRows = append(volRows, map[string]any{
 			"id":   volumeNodeID(abbrev),
-			"name": volumeDisplayNames[abbrev],
-			"abbr": abbrev,
+			"name":         volumeDisplayNames[abbrev],
+			"abbreviation": abbrev,
 		})
 	}
-	if _, err := graph.Query(
-		`UNWIND $rows AS r
-		 CREATE (:Volume {id: r.id, name: r.name, abbreviation: r.abbr})`,
-		map[string]interface{}{"rows": volRows}, nil,
-	); err != nil {
-		return verseIndex, fmt.Errorf("creating volumes: %w", err)
-	}
-	l.stats.Volumes = len(volRows)
+
+	var (
+		bookRows    []any
+		chapterRows []any
+		verseRows   []any
+	)
 
 	for _, volAbbrev := range volumeAbbreviations {
 		volDir := filepath.Join(l.dataDir, volAbbrev)
@@ -68,12 +76,15 @@ func (l *Loader) loadScriptures(ctx context.Context) (VerseIndex, error) {
 			if err != nil {
 				return verseIndex, fmt.Errorf("reading first chapter of %s/%s: %w", volAbbrev, bookSlug, err)
 			}
-
 			bookName := l.resolveBookName(firstChapter.Book, volAbbrev, bookSlug)
-			if err := l.createBook(ctx, volAbbrev, bookSlug, bookName); err != nil {
-				return verseIndex, err
-			}
-			l.stats.Books++
+
+			bookRows = append(bookRows, map[string]any{
+				"id": bookNodeID(volAbbrev, bookSlug),
+				"name":       bookName,
+				"slug":       bookSlug,
+				"urlPath":    volAbbrev + "/" + bookSlug,
+				"volume":     connectById(volumeNodeID(volAbbrev)),
+			})
 
 			for _, chFile := range chapterFiles {
 				chPath := filepath.Join(bookDir, chFile)
@@ -81,131 +92,184 @@ func (l *Loader) loadScriptures(ctx context.Context) (VerseIndex, error) {
 				if err != nil {
 					return verseIndex, fmt.Errorf("reading %s: %w", chPath, err)
 				}
-				if err := l.loadChapter(ctx, volAbbrev, bookSlug, chJSON, &verseIndex); err != nil {
-					return verseIndex, fmt.Errorf("loading chapter %s/%s/%d: %w",
-						volAbbrev, bookSlug, chJSON.Chapter, err)
+				chapterRows = append(chapterRows, buildChapterRow(volAbbrev, bookSlug, chJSON))
+
+				abbrev := l.slugMap[volAbbrev+"/"+bookSlug]
+				for _, v := range chJSON.Verses {
+					id := VerseNodeID(volAbbrev, bookSlug, chJSON.Chapter, v.Number)
+					verseRows = append(verseRows, buildVerseRow(id, abbrev, chJSON, v))
+					verseIndex.Put(volAbbrev, bookSlug, chJSON.Chapter, v.Number, id)
 				}
 			}
 		}
 	}
 
+	// Typed bulk creates. Each row already carries its parent-edge
+	// `connect` payload (see connectById); the fork-patched translator
+	// unrolls that per-item at query time so node + edge land in the same
+	// round-trip. Auto-chunker handles sub-batching at 500/batch.
+	if err := l.createVolumes(ctx, volRows); err != nil {
+		return verseIndex, err
+	}
+	l.stats.Volumes = len(volRows)
+
+	if err := l.createBooks(ctx, bookRows); err != nil {
+		return verseIndex, err
+	}
+	l.stats.Books = len(bookRows)
+
+	if err := l.createChapters(ctx, chapterRows); err != nil {
+		return verseIndex, err
+	}
+	l.stats.Chapters = len(chapterRows)
+
+	if err := l.createVerses(ctx, verseRows); err != nil {
+		return verseIndex, err
+	}
+	l.stats.Verses = len(verseRows)
+
+	l.logger.Info("phase 1 totals",
+		"volumes", l.stats.Volumes, "books", l.stats.Books,
+		"chapters", l.stats.Chapters, "verses", l.stats.Verses,
+	)
 	return verseIndex, nil
 }
 
-func (l *Loader) createBook(ctx context.Context, volAbbrev, bookSlug, bookName string) error {
-	_, err := l.fc.Raw().Query(
-		`MATCH (vol:Volume {id: $volId})
-		 CREATE (b:Book {id: $id, name: $name, slug: $slug, urlPath: $url})
-		 CREATE (vol)-[:CONTAINS]->(b)`,
-		map[string]interface{}{
-			"volId": volumeNodeID(volAbbrev),
-			"id":    bookNodeID(volAbbrev, bookSlug),
-			"name":  bookName,
-			"slug":  bookSlug,
-			"url":   volAbbrev + "/" + bookSlug,
-		}, nil,
-	)
-	_ = ctx
+// --- Row builders (no DB I/O) ---
+
+func buildChapterRow(volAbbrev, bookSlug string, ch ChapterJSON) map[string]any {
+	row := map[string]any{
+		"id":       chapterNodeID(volAbbrev, bookSlug, ch.Chapter),
+		"number":           ch.Chapter,
+		"summaryEmbedding": placeholderEmbedding(),
+		"book":             connectById(bookNodeID(volAbbrev, bookSlug)),
+	}
+	if ch.Summary != "" {
+		row["summary"] = ch.Summary
+	}
+	if ch.URL != "" {
+		row["url"] = ch.URL
+	}
+	return row
+}
+
+func buildVerseRow(id, abbrev string, ch ChapterJSON, v VerseJSON) map[string]any {
+	row := map[string]any{
+		"id": id,
+		"number":     v.Number,
+		"text":       v.Text,
+		"reference":  fmt.Sprintf("%s %d:%d", abbrev, ch.Chapter, v.Number),
+		"chapter":    connectById(chapterNodeID(extractVolumeFromID(id), extractBookSlugFromID(id), ch.Chapter)),
+	}
+	trn, or, ie := extractInlineFootnotes(ch.Footnotes, v.Number)
+	if len(trn) > 0 {
+		if b, err := json.Marshal(trn); err == nil {
+			row["translationNotes"] = string(b)
+		}
+	}
+	if len(or) > 0 {
+		if b, err := json.Marshal(or); err == nil {
+			row["alternateReadings"] = string(b)
+		}
+	}
+	if len(ie) > 0 {
+		if b, err := json.Marshal(ie); err == nil {
+			row["explanatoryNotes"] = string(b)
+		}
+	}
+	return row
+}
+
+// connectById builds a `{ connect: [{ where: { id: <id> } }] }`
+// payload for every `XxxYyyFieldInput` relationship field on a CreateInput.
+// All of our structural edges at Phase 1 go from child → parent via this
+// shape (Book.volume, Chapter.book, Verse.chapter).
+func connectById(id string) map[string]any {
+	return map[string]any{
+		"connect": []any{
+			map[string]any{"where": map[string]any{"id": id}},
+		},
+	}
+}
+
+// Verse.id decoders. The row builder has the verse id (e.g.
+// "v/ot/gen/1/5") in hand but not the separate (vol, slug) components, so we
+// pull them back out of the id string when building the chapter connect.
+func extractVolumeFromID(verseID string) string {
+	parts := strings.Split(verseID, "/")
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+func extractBookSlugFromID(verseID string) string {
+	parts := strings.Split(verseID, "/")
+	if len(parts) >= 3 {
+		return parts[2]
+	}
+	return ""
+}
+
+// --- Typed bulk mutation helpers ---
+
+func (l *Loader) createVolumes(ctx context.Context, rows []any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	_, err := l.fc.GraphQL().Execute(ctx, `
+		mutation ($input: [VolumeCreateInput!]!) {
+		  createVolumes(input: $input) { volumes { id } }
+		}`, map[string]any{"input": rows})
 	if err != nil {
-		return fmt.Errorf("creating book %s/%s: %w", volAbbrev, bookSlug, err)
+		return fmt.Errorf("createVolumes: %w", err)
 	}
 	return nil
 }
 
-func (l *Loader) loadChapter(
-	ctx context.Context,
-	volume, slug string,
-	ch ChapterJSON,
-	verseIndex *VerseIndex,
-) error {
-	chapterID := chapterNodeID(volume, slug, ch.Chapter)
+func (l *Loader) createBooks(ctx context.Context, rows []any) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	_, err := l.fc.GraphQL().Execute(ctx, `
+		mutation ($input: [BookCreateInput!]!) {
+		  createBooks(input: $input) { books { id } }
+		}`, map[string]any{"input": rows})
+	if err != nil {
+		return fmt.Errorf("createBooks: %w", err)
+	}
+	return nil
+}
 
-	// Create the chapter node + CONTAINS edge from its book. Without a
-	// summaryEmbedding yet, Phase 6 fills it in via `SET`.
-	chapterProps := map[string]interface{}{
-		"id":     chapterID,
-		"number": ch.Chapter,
-		"bookId": bookNodeID(volume, slug),
+func (l *Loader) createChapters(ctx context.Context, rows []any) error {
+	if len(rows) == 0 {
+		return nil
 	}
-	q := `MATCH (b:Book {id: $bookId})
-	       CREATE (c:Chapter {id: $id, number: $number`
-	if ch.Summary != "" {
-		chapterProps["summary"] = ch.Summary
-		q += `, summary: $summary`
+	_, err := l.fc.GraphQL().Execute(ctx, `
+		mutation ($input: [ChapterCreateInput!]!) {
+		  createChapters(input: $input) { chapters { id } }
+		}`, map[string]any{"input": rows})
+	if err != nil {
+		return fmt.Errorf("createChapters: %w", err)
 	}
-	if ch.URL != "" {
-		chapterProps["url"] = ch.URL
-		q += `, url: $url`
-	}
-	q += `})
-	      CREATE (b)-[:CONTAINS]->(c)`
-	if _, err := l.fc.Raw().Query(q, chapterProps, nil); err != nil {
-		return fmt.Errorf("creating chapter %d: %w", ch.Chapter, err)
-	}
-	l.stats.Chapters++
-	if l.stats.Chapters%100 == 0 {
-		l.logger.Info("progress", "chapters", l.stats.Chapters, "verses", l.stats.Verses)
-	}
+	return nil
+}
 
-	// Bulk-create verses for this chapter in one UNWIND round-trip.
-	abbrev := l.slugMap[volume+"/"+slug]
-	verseRows := make([]interface{}, 0, len(ch.Verses))
-	for _, v := range ch.Verses {
-		id := VerseNodeID(volume, slug, ch.Chapter, v.Number)
-		row := map[string]interface{}{
-			"id":     id,
-			"number": v.Number,
-			"text":   v.Text,
-			"ref":    fmt.Sprintf("%s %d:%d", abbrev, ch.Chapter, v.Number),
-		}
-		trn, or, ie := extractInlineFootnotes(ch.Footnotes, v.Number)
-		if len(trn) > 0 {
-			if b, err := json.Marshal(trn); err == nil {
-				row["translationNotes"] = string(b)
-			}
-		}
-		if len(or) > 0 {
-			if b, err := json.Marshal(or); err == nil {
-				row["alternateReadings"] = string(b)
-			}
-		}
-		if len(ie) > 0 {
-			if b, err := json.Marshal(ie); err == nil {
-				row["explanatoryNotes"] = string(b)
-			}
-		}
-		verseRows = append(verseRows, row)
-		verseIndex.Put(volume, slug, ch.Chapter, v.Number, id)
+func (l *Loader) createVerses(ctx context.Context, rows []any) error {
+	if len(rows) == 0 {
+		return nil
 	}
-
-	if _, err := l.fc.Raw().Query(
-		`MATCH (c:Chapter {id: $chapterId})
-		 UNWIND $rows AS r
-		 CREATE (v:Verse {
-		   id: r.id,
-		   number: r.number,
-		   text: r.text,
-		   reference: r.ref,
-		   translationNotes:  coalesce(r.translationNotes,  ''),
-		   alternateReadings: coalesce(r.alternateReadings, ''),
-		   explanatoryNotes:  coalesce(r.explanatoryNotes,  '')
-		 })
-		 CREATE (c)-[:HAS_VERSE]->(v)`,
-		map[string]interface{}{"chapterId": chapterID, "rows": verseRows},
-		nil,
-	); err != nil {
-		return fmt.Errorf("bulk creating verses for chapter %d: %w", ch.Chapter, err)
+	_, err := l.fc.GraphQL().Execute(ctx, `
+		mutation ($input: [VerseCreateInput!]!) {
+		  createVerses(input: $input) { verses { id } }
+		}`, map[string]any{"input": rows})
+	if err != nil {
+		return fmt.Errorf("createVerses: %w", err)
 	}
-
-	l.stats.Verses += len(verseRows)
-	_ = ctx
 	return nil
 }
 
 // InlineFootnote types (translation / alternate-reading / explanatory) —
-// JSON-serialized onto the Verse node. The Ent schema had three dedicated
-// Go types for these; in FalkorDB they live as JSON strings on a single
-// property per kind, so the storage layer stays simple.
+// JSON-serialized onto the Verse node.
 type inlineTrnNote struct {
 	Marker     string `json:"marker"`
 	HebrewText string `json:"hebrew_text,omitempty"`
@@ -316,6 +380,6 @@ func readChapterJSON(path string) (ChapterJSON, error) {
 
 // --- Deterministic FalkorDB node IDs ---
 
-func volumeNodeID(abbrev string) string            { return "vol/" + abbrev }
-func bookNodeID(volAbbrev, slug string) string     { return "book/" + volAbbrev + "/" + slug }
+func volumeNodeID(abbrev string) string             { return "vol/" + abbrev }
+func bookNodeID(volAbbrev, slug string) string      { return "book/" + volAbbrev + "/" + slug }
 func chapterNodeID(vol, slug string, ch int) string { return "ch/" + vol + "/" + slug + "/" + strconv.Itoa(ch) }

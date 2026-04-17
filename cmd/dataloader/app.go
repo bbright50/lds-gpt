@@ -7,11 +7,9 @@ import (
 	"log/slog"
 	"os"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-
 	"lds-gpt/cmd/dataloader/config"
-	"lds-gpt/internal/bedrockembedding"
 	"lds-gpt/internal/dataloader"
+	"lds-gpt/internal/embedding"
 	"lds-gpt/internal/falkor"
 )
 
@@ -68,11 +66,11 @@ func main() {
 
 	var opts []dataloader.LoaderOption
 	if *embed || *embedOnly {
-		embedClient, err := newEmbedClient(ctx, cfg.AWSRegion)
-		if err != nil {
-			logger.Error("failed to create embedding client", "error", err)
+		if cfg.OllamaURL == "" || cfg.OllamaModel == "" {
+			logger.Error("embedding enabled but OLLAMA_URL and OLLAMA_MODEL are required")
 			os.Exit(1)
 		}
+		embedClient := embedding.NewOllamaClient(cfg.OllamaURL, cfg.OllamaModel)
 		opts = append(opts, dataloader.WithEmbedClient(embedClient))
 	}
 
@@ -91,16 +89,4 @@ func main() {
 	}
 
 	logger.Info("dataloader completed successfully")
-}
-
-func newEmbedClient(ctx context.Context, region string) (bedrockembedding.Client, error) {
-	opts := []func(*awsconfig.LoadOptions) error{}
-	if region != "" {
-		opts = append(opts, awsconfig.WithRegion(region))
-	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("loading AWS config: %w", err)
-	}
-	return bedrockembedding.NewClient(awsCfg), nil
 }

@@ -9,19 +9,19 @@ import (
 )
 
 // Phase 5 — create sliding-window VerseGroup nodes (the primary RAG
-// retrieval unit). Re-walks the scripture JSON tree to get chapters + their
-// verses in reading order, then emits a VerseGroup per (start, start+window)
-// slice, stepping by `groupStepSize`. Each group gets INCLUDES edges to its
-// constituent verses and a HAS_GROUP edge from its chapter.
+// retrieval unit). Typed `createVerseGroups` carries both edge kinds as
+// nested connect payloads:
+//   * chapter: single connect — Chapter-[:HAS_GROUP]->VerseGroup (IN direction)
+//   * verses:  list connect   — VerseGroup-[:INCLUDES]->Verse    (OUT direction)
+// The fork-patched translator unrolls both via runtime UNWIND, so one
+// typed mutation per sub-batch covers nodes + edges.
 //
-// The VerseGroup.embedding property is set later by Phase 6 via
-// `SET g.embedding = vecf32(...)`.
+// VerseGroup.embedding is a required @vector field; Phase 6 upgrades the
+// placeholder via typed updateXxx + fork-patched vecf32 auto-wrap.
 
 const (
 	groupWindowSize = 5
 	groupStepSize   = 3
-
-	verseGroupBatchSize = 500
 )
 
 type verseGroupRow struct {
@@ -40,8 +40,7 @@ func (l *Loader) loadVerseGroups(ctx context.Context) error {
 		volDir := filepath.Join(l.dataDir, volAbbrev)
 		bookSlugs, err := listBookSlugs(volDir)
 		if err != nil {
-			// Missing volume; Phase 1 already warned.
-			continue
+			continue // Phase 1 already warned about missing volume dirs
 		}
 		for _, bookSlug := range bookSlugs {
 			bookDir := filepath.Join(volDir, bookSlug)
@@ -60,9 +59,37 @@ func (l *Loader) loadVerseGroups(ctx context.Context) error {
 		}
 	}
 
-	if err := l.writeVerseGroups(ctx, rows); err != nil {
-		return err
+	if len(rows) == 0 {
+		return nil
 	}
+
+	// Typed bulk create carrying both edge kinds as nested connect payloads.
+	// `chapter` is a single connect (each VerseGroup belongs to exactly one
+	// Chapter, in IN direction). `verses` is a list connect (each VerseGroup
+	// includes multiple Verses via INCLUDES in OUT direction).
+	nodeRows := make([]any, 0, len(rows))
+	for _, r := range rows {
+		verseConnects := make([]any, 0, len(r.verseIDs))
+		for _, vid := range r.verseIDs {
+			verseConnects = append(verseConnects, map[string]any{"where": map[string]any{"id": vid}})
+		}
+		nodeRows = append(nodeRows, map[string]any{
+			"id":               r.id,
+			"text":             r.text,
+			"startVerseNumber": r.startVerseNum,
+			"endVerseNumber":   r.endVerseNum,
+			"embedding":        placeholderEmbedding(),
+			"chapter":          connectById(r.chapterID),
+			"verses":           map[string]any{"connect": verseConnects},
+		})
+	}
+	if _, err := l.fc.GraphQL().Execute(ctx, `
+		mutation ($input: [VerseGroupCreateInput!]!) {
+		  createVerseGroups(input: $input) { verseGroups { id } }
+		}`, map[string]any{"input": nodeRows}); err != nil {
+		return fmt.Errorf("createVerseGroups: %w", err)
+	}
+
 	l.stats.VerseGroups += len(rows)
 	return nil
 }
@@ -72,9 +99,6 @@ func (l *Loader) buildVerseGroupsForChapter(vol, slug string, ch ChapterJSON) []
 		return nil
 	}
 
-	// Ensure verses are ordered by number. The scraped JSON already walks the
-	// page top-down so the order is usually correct, but sort defensively —
-	// the original LibSQL loader also re-sorted.
 	verses := make([]VerseJSON, len(ch.Verses))
 	copy(verses, ch.Verses)
 	sort.Slice(verses, func(i, j int) bool { return verses[i].Number < verses[j].Number })
@@ -114,55 +138,6 @@ func (l *Loader) buildVerseGroupsForChapter(vol, slug string, ch ChapterJSON) []
 		}
 	}
 	return rows
-}
-
-func (l *Loader) writeVerseGroups(ctx context.Context, rows []verseGroupRow) error {
-	_ = ctx
-	for i := 0; i < len(rows); i += verseGroupBatchSize {
-		end := i + verseGroupBatchSize
-		if end > len(rows) {
-			end = len(rows)
-		}
-		batch := make([]interface{}, 0, end-i)
-		for _, r := range rows[i:end] {
-			// verseIDs has to be passed as []interface{} for falkordb-go's
-			// ToString — the BuildParamsHeader only handles []interface{} and
-			// []string at the slice level. Strings would also work since
-			// ToString has a []string branch; explicit any makes the shape
-			// match what we use for other parameters in the package.
-			ids := make([]interface{}, len(r.verseIDs))
-			for j, id := range r.verseIDs {
-				ids[j] = id
-			}
-			batch = append(batch, map[string]interface{}{
-				"id":        r.id,
-				"chapterId": r.chapterID,
-				"text":      r.text,
-				"startNum":  r.startVerseNum,
-				"endNum":    r.endVerseNum,
-				"verseIds":  ids,
-			})
-		}
-		if _, err := l.fc.Raw().Query(
-			`UNWIND $rows AS r
-			 MATCH (c:Chapter {id: r.chapterId})
-			 CREATE (g:VerseGroup {
-			   id: r.id,
-			   text: r.text,
-			   startVerseNumber: r.startNum,
-			   endVerseNumber: r.endNum
-			 })
-			 CREATE (c)-[:HAS_GROUP]->(g)
-			 WITH g, r
-			 UNWIND r.verseIds AS vid
-			 MATCH (v:Verse {id: vid})
-			 CREATE (g)-[:INCLUDES]->(v)`,
-			map[string]interface{}{"rows": batch}, nil,
-		); err != nil {
-			return fmt.Errorf("creating verse groups: %w", err)
-		}
-	}
-	return nil
 }
 
 func verseGroupNodeID(vol, slug string, chapter, start, end int) string {

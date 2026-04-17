@@ -1,11 +1,17 @@
 # lds-gpt property-graph schema — source of truth for go-ormql codegen.
 #
 # Design notes:
-#   * @vector fields are `[Float!]!` (non-null) because go-ormql's generator
-#     requires it. In practice, Phase 1 of the dataloader inserts nodes before
-#     embeddings exist — those writes use raw Cypher (Client.Raw()) and bypass
-#     the generated createXxx mutation. Phase 6 writes embeddings via raw
-#     `SET n.embedding = vecf32(...)` for the same reason.
+#   * `id: ID!` is the canonical identifier. Callers supply a deterministic
+#     string ("v/ot/gen/1/5", "tg/Faith", "vg/ot/gen/1/1-5", …) via the
+#     create input; the fork-patched translator falls back to `randomUUID()`
+#     only when the caller omits it. All our code uses `id` for lookups,
+#     joins, and raw-Cypher MATCHes.
+#   * @vector fields are `[Float!]!` (non-null) — the generator requires it.
+#     Phases 1–5 insert nodes before embeddings exist; Phase 6 upgrades via
+#     `SET n.embedding = vecf32(...)`. The spike test
+#     TestSpike_VectorIndexOnPlainList_VsVecf32 confirmed FalkorDB's vector
+#     index is strict (only indexes vectorf32 values) so placeholder lists at
+#     create time do not pollute kNN.
 #   * The six through-entity types from the prior LibSQL/Ent schema (VerseCrossRef,
 #     TGVerseRef, BDVerseRef, IDXVerseRef, VerseJSTRef, VerseTGRef) collapse
 #     into @relationshipProperties types below.
@@ -116,10 +122,13 @@ type VerseCrossRefProps @relationshipProperties {
   category: String
   footnoteMarker: String
   referenceText: String
+  targetEndVerseId: String
 }
 
 type VerseTGRefProps @relationshipProperties {
   footnoteMarker: String
+  tgTopicText: String
+  referenceText: String
 }
 
 type VerseBDRefProps @relationshipProperties {

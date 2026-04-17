@@ -19,34 +19,55 @@ type DeleteInfo struct {
 	NodesDeleted int `json:"nodesDeleted"`
 }
 
+type BDVerseRefProps struct {
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
+}
+
+type BDVerseRefPropsCreateInput struct {
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
+}
+
+type BDVerseRefPropsUpdateInput struct {
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
+}
+
 type VerseCrossRefProps struct {
-	Category       *string `json:"category,omitempty"`
-	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
-	ReferenceText  *string `json:"referenceText,omitempty"`
+	Category         *string `json:"category,omitempty"`
+	FootnoteMarker   *string `json:"footnoteMarker,omitempty"`
+	ReferenceText    *string `json:"referenceText,omitempty"`
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
 }
 
 type VerseCrossRefPropsCreateInput struct {
-	Category       *string `json:"category,omitempty"`
-	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
-	ReferenceText  *string `json:"referenceText,omitempty"`
+	Category         *string `json:"category,omitempty"`
+	FootnoteMarker   *string `json:"footnoteMarker,omitempty"`
+	ReferenceText    *string `json:"referenceText,omitempty"`
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
 }
 
 type VerseCrossRefPropsUpdateInput struct {
-	Category       *string `json:"category,omitempty"`
-	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
-	ReferenceText  *string `json:"referenceText,omitempty"`
+	Category         *string `json:"category,omitempty"`
+	FootnoteMarker   *string `json:"footnoteMarker,omitempty"`
+	ReferenceText    *string `json:"referenceText,omitempty"`
+	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
 }
 
 type VerseTGRefProps struct {
 	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
+	TgTopicText    *string `json:"tgTopicText,omitempty"`
+	ReferenceText  *string `json:"referenceText,omitempty"`
 }
 
 type VerseTGRefPropsCreateInput struct {
 	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
+	TgTopicText    *string `json:"tgTopicText,omitempty"`
+	ReferenceText  *string `json:"referenceText,omitempty"`
 }
 
 type VerseTGRefPropsUpdateInput struct {
 	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
+	TgTopicText    *string `json:"tgTopicText,omitempty"`
+	ReferenceText  *string `json:"referenceText,omitempty"`
 }
 
 type VerseBDRefProps struct {
@@ -73,18 +94,6 @@ type VerseJSTRefPropsUpdateInput struct {
 	FootnoteMarker *string `json:"footnoteMarker,omitempty"`
 }
 
-type BDVerseRefProps struct {
-	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
-}
-
-type BDVerseRefPropsCreateInput struct {
-	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
-}
-
-type BDVerseRefPropsUpdateInput struct {
-	TargetEndVerseId *string `json:"targetEndVerseId,omitempty"`
-}
-
 type IDXVerseRefProps struct {
 	Phrase *string `json:"phrase,omitempty"`
 }
@@ -109,396 +118,316 @@ type TGVerseRefPropsUpdateInput struct {
 	Phrase *string `json:"phrase,omitempty"`
 }
 
-type VerseGroup struct {
-	Id               string     `json:"id"`
-	Text             string     `json:"text"`
-	StartVerseNumber int        `json:"startVerseNumber"`
-	EndVerseNumber   int        `json:"endVerseNumber"`
-	Embedding        []float64  `json:"embedding"`
-	Chapter          []*Chapter `json:"chapter,omitempty"`
-	Verses           []*Verse   `json:"verses,omitempty"`
+type Volume struct {
+	Id           string  `json:"id"`
+	Name         string  `json:"name"`
+	Abbreviation string  `json:"abbreviation"`
+	Books        []*Book `json:"books,omitempty"`
 }
 
-type VerseGroupCreateInput struct {
-	Text             string    `json:"text"`
-	StartVerseNumber int       `json:"startVerseNumber"`
-	EndVerseNumber   int       `json:"endVerseNumber"`
-	Embedding        []float64 `json:"embedding"`
+type VolumeCreateInput struct {
+	Id           *string `json:"id,omitempty"`
+	Name         string  `json:"name"`
+	Abbreviation string  `json:"abbreviation"`
 }
 
-type VerseGroupUpdateInput struct {
-	Text             *string   `json:"text,omitempty"`
-	StartVerseNumber *int      `json:"startVerseNumber,omitempty"`
-	EndVerseNumber   *int      `json:"endVerseNumber,omitempty"`
-	Embedding        []float64 `json:"embedding,omitempty"`
+type VolumeUpdateInput struct {
+	Name         *string `json:"name,omitempty"`
+	Abbreviation *string `json:"abbreviation,omitempty"`
 }
 
-type VerseGroupWhere struct {
-	Id                    *string            `json:"id,omitempty"`
-	IdNot                 *string            `json:"id_NOT,omitempty"`
-	IdIn                  []string           `json:"id_IN,omitempty"`
-	IdNotIn               []string           `json:"id_NOT_IN,omitempty"`
-	IdContains            *string            `json:"id_CONTAINS,omitempty"`
-	IdStartsWith          *string            `json:"id_STARTS_WITH,omitempty"`
-	IdEndsWith            *string            `json:"id_ENDS_WITH,omitempty"`
-	Text                  *string            `json:"text,omitempty"`
-	TextNot               *string            `json:"text_NOT,omitempty"`
-	TextIn                []string           `json:"text_IN,omitempty"`
-	TextNotIn             []string           `json:"text_NOT_IN,omitempty"`
-	TextGt                *string            `json:"text_GT,omitempty"`
-	TextGte               *string            `json:"text_GTE,omitempty"`
-	TextLt                *string            `json:"text_LT,omitempty"`
-	TextLte               *string            `json:"text_LTE,omitempty"`
-	TextContains          *string            `json:"text_CONTAINS,omitempty"`
-	TextStartsWith        *string            `json:"text_STARTS_WITH,omitempty"`
-	TextEndsWith          *string            `json:"text_ENDS_WITH,omitempty"`
-	StartVerseNumber      *int               `json:"startVerseNumber,omitempty"`
-	StartVerseNumberNot   *int               `json:"startVerseNumber_NOT,omitempty"`
-	StartVerseNumberIn    []int              `json:"startVerseNumber_IN,omitempty"`
-	StartVerseNumberNotIn []int              `json:"startVerseNumber_NOT_IN,omitempty"`
-	StartVerseNumberGt    *int               `json:"startVerseNumber_GT,omitempty"`
-	StartVerseNumberGte   *int               `json:"startVerseNumber_GTE,omitempty"`
-	StartVerseNumberLt    *int               `json:"startVerseNumber_LT,omitempty"`
-	StartVerseNumberLte   *int               `json:"startVerseNumber_LTE,omitempty"`
-	EndVerseNumber        *int               `json:"endVerseNumber,omitempty"`
-	EndVerseNumberNot     *int               `json:"endVerseNumber_NOT,omitempty"`
-	EndVerseNumberIn      []int              `json:"endVerseNumber_IN,omitempty"`
-	EndVerseNumberNotIn   []int              `json:"endVerseNumber_NOT_IN,omitempty"`
-	EndVerseNumberGt      *int               `json:"endVerseNumber_GT,omitempty"`
-	EndVerseNumberGte     *int               `json:"endVerseNumber_GTE,omitempty"`
-	EndVerseNumberLt      *int               `json:"endVerseNumber_LT,omitempty"`
-	EndVerseNumberLte     *int               `json:"endVerseNumber_LTE,omitempty"`
-	Embedding             *[]float64         `json:"embedding,omitempty"`
-	EmbeddingNot          *[]float64         `json:"embedding_NOT,omitempty"`
-	EmbeddingIn           [][]float64        `json:"embedding_IN,omitempty"`
-	EmbeddingNotIn        [][]float64        `json:"embedding_NOT_IN,omitempty"`
-	EmbeddingGt           *[]float64         `json:"embedding_GT,omitempty"`
-	EmbeddingGte          *[]float64         `json:"embedding_GTE,omitempty"`
-	EmbeddingLt           *[]float64         `json:"embedding_LT,omitempty"`
-	EmbeddingLte          *[]float64         `json:"embedding_LTE,omitempty"`
-	AND                   []*VerseGroupWhere `json:"AND,omitempty"`
-	OR                    []*VerseGroupWhere `json:"OR,omitempty"`
-	NOT                   *VerseGroupWhere   `json:"NOT,omitempty"`
+type VolumeWhere struct {
+	Id                     *string        `json:"id,omitempty"`
+	IdNot                  *string        `json:"id_NOT,omitempty"`
+	IdIn                   []string       `json:"id_IN,omitempty"`
+	IdNotIn                []string       `json:"id_NOT_IN,omitempty"`
+	IdContains             *string        `json:"id_CONTAINS,omitempty"`
+	IdStartsWith           *string        `json:"id_STARTS_WITH,omitempty"`
+	IdEndsWith             *string        `json:"id_ENDS_WITH,omitempty"`
+	Name                   *string        `json:"name,omitempty"`
+	NameNot                *string        `json:"name_NOT,omitempty"`
+	NameIn                 []string       `json:"name_IN,omitempty"`
+	NameNotIn              []string       `json:"name_NOT_IN,omitempty"`
+	NameGt                 *string        `json:"name_GT,omitempty"`
+	NameGte                *string        `json:"name_GTE,omitempty"`
+	NameLt                 *string        `json:"name_LT,omitempty"`
+	NameLte                *string        `json:"name_LTE,omitempty"`
+	NameContains           *string        `json:"name_CONTAINS,omitempty"`
+	NameStartsWith         *string        `json:"name_STARTS_WITH,omitempty"`
+	NameEndsWith           *string        `json:"name_ENDS_WITH,omitempty"`
+	Abbreviation           *string        `json:"abbreviation,omitempty"`
+	AbbreviationNot        *string        `json:"abbreviation_NOT,omitempty"`
+	AbbreviationIn         []string       `json:"abbreviation_IN,omitempty"`
+	AbbreviationNotIn      []string       `json:"abbreviation_NOT_IN,omitempty"`
+	AbbreviationGt         *string        `json:"abbreviation_GT,omitempty"`
+	AbbreviationGte        *string        `json:"abbreviation_GTE,omitempty"`
+	AbbreviationLt         *string        `json:"abbreviation_LT,omitempty"`
+	AbbreviationLte        *string        `json:"abbreviation_LTE,omitempty"`
+	AbbreviationContains   *string        `json:"abbreviation_CONTAINS,omitempty"`
+	AbbreviationStartsWith *string        `json:"abbreviation_STARTS_WITH,omitempty"`
+	AbbreviationEndsWith   *string        `json:"abbreviation_ENDS_WITH,omitempty"`
+	AND                    []*VolumeWhere `json:"AND,omitempty"`
+	OR                     []*VolumeWhere `json:"OR,omitempty"`
+	NOT                    *VolumeWhere   `json:"NOT,omitempty"`
 }
 
-type VerseGroupSort struct {
-	Id               *SortDirection `json:"id,omitempty"`
-	Text             *SortDirection `json:"text,omitempty"`
-	StartVerseNumber *SortDirection `json:"startVerseNumber,omitempty"`
-	EndVerseNumber   *SortDirection `json:"endVerseNumber,omitempty"`
-	Embedding        *SortDirection `json:"embedding,omitempty"`
+type VolumeSort struct {
+	Id           *SortDirection `json:"id,omitempty"`
+	Name         *SortDirection `json:"name,omitempty"`
+	Abbreviation *SortDirection `json:"abbreviation,omitempty"`
 }
 
-type VerseGroupsConnection struct {
-	Edges      []*VerseGroupEdge `json:"edges"`
-	TotalCount int               `json:"totalCount"`
-	PageInfo   PageInfo          `json:"pageInfo"`
+type VolumesConnection struct {
+	Edges      []*VolumeEdge `json:"edges"`
+	TotalCount int           `json:"totalCount"`
+	PageInfo   PageInfo      `json:"pageInfo"`
 }
 
-type VerseGroupEdge struct {
-	Node   *VerseGroup `json:"node"`
-	Cursor string      `json:"cursor"`
+type VolumeEdge struct {
+	Node   *Volume `json:"node"`
+	Cursor string  `json:"cursor"`
 }
 
-type CreateVerseGroupsMutationResponse struct {
-	VerseGroups []*VerseGroup `json:"verseGroups"`
+type CreateVolumesMutationResponse struct {
+	Volumes []*Volume `json:"volumes"`
 }
 
-type UpdateVerseGroupsMutationResponse struct {
-	VerseGroups []*VerseGroup `json:"verseGroups"`
+type UpdateVolumesMutationResponse struct {
+	Volumes []*Volume `json:"volumes"`
 }
 
-type VerseGroupSimilarResult struct {
-	Score float64     `json:"score"`
-	Node  *VerseGroup `json:"node"`
+type VolumeBooksConnection struct {
+	Edges      []*VolumeBooksEdge `json:"edges"`
+	TotalCount int                `json:"totalCount"`
+	PageInfo   PageInfo           `json:"pageInfo"`
 }
 
-type VerseGroupChapterConnection struct {
-	Edges      []*VerseGroupChapterEdge `json:"edges"`
-	TotalCount int                      `json:"totalCount"`
-	PageInfo   PageInfo                 `json:"pageInfo"`
-}
-
-type VerseGroupChapterEdge struct {
-	Node   *Chapter `json:"node"`
-	Cursor string   `json:"cursor"`
-}
-
-type VerseGroupChapterFieldInput struct {
-	Create  []*VerseGroupChapterCreateFieldInput  `json:"create,omitempty"`
-	Connect []*VerseGroupChapterConnectFieldInput `json:"connect,omitempty"`
-}
-
-type VerseGroupChapterUpdateFieldInput struct {
-	Create     []*VerseGroupChapterCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*VerseGroupChapterConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*VerseGroupChapterDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*VerseGroupChapterUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*VerseGroupChapterDeleteFieldInput      `json:"delete,omitempty"`
-}
-
-type VerseGroupChapterCreateFieldInput struct {
-	Node ChapterCreateInput `json:"node"`
-}
-
-type VerseGroupChapterConnectFieldInput struct {
-	Where ChapterWhere `json:"where"`
-}
-
-type VerseGroupChapterDisconnectFieldInput struct {
-	Where ChapterWhere `json:"where"`
-}
-
-type VerseGroupChapterUpdateConnectionInput struct {
-	Where ChapterWhere        `json:"where"`
-	Node  *ChapterUpdateInput `json:"node,omitempty"`
-}
-
-type VerseGroupChapterDeleteFieldInput struct {
-	Where ChapterWhere `json:"where"`
-}
-
-type VerseGroupVersesConnection struct {
-	Edges      []*VerseGroupVersesEdge `json:"edges"`
-	TotalCount int                     `json:"totalCount"`
-	PageInfo   PageInfo                `json:"pageInfo"`
-}
-
-type VerseGroupVersesEdge struct {
-	Node   *Verse `json:"node"`
+type VolumeBooksEdge struct {
+	Node   *Book  `json:"node"`
 	Cursor string `json:"cursor"`
 }
 
-type VerseGroupVersesFieldInput struct {
-	Create  []*VerseGroupVersesCreateFieldInput  `json:"create,omitempty"`
-	Connect []*VerseGroupVersesConnectFieldInput `json:"connect,omitempty"`
+type VolumeBooksFieldInput struct {
+	Create  []*VolumeBooksCreateFieldInput  `json:"create,omitempty"`
+	Connect []*VolumeBooksConnectFieldInput `json:"connect,omitempty"`
 }
 
-type VerseGroupVersesUpdateFieldInput struct {
-	Create     []*VerseGroupVersesCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*VerseGroupVersesConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*VerseGroupVersesDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*VerseGroupVersesUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*VerseGroupVersesDeleteFieldInput      `json:"delete,omitempty"`
+type VolumeBooksUpdateFieldInput struct {
+	Create     []*VolumeBooksCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*VolumeBooksConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*VolumeBooksDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*VolumeBooksUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*VolumeBooksDeleteFieldInput      `json:"delete,omitempty"`
 }
 
-type VerseGroupVersesCreateFieldInput struct {
-	Node VerseCreateInput `json:"node"`
+type VolumeBooksCreateFieldInput struct {
+	Node BookCreateInput `json:"node"`
 }
 
-type VerseGroupVersesConnectFieldInput struct {
-	Where VerseWhere `json:"where"`
+type VolumeBooksConnectFieldInput struct {
+	Where BookWhere `json:"where"`
 }
 
-type VerseGroupVersesDisconnectFieldInput struct {
-	Where VerseWhere `json:"where"`
+type VolumeBooksDisconnectFieldInput struct {
+	Where BookWhere `json:"where"`
 }
 
-type VerseGroupVersesUpdateConnectionInput struct {
-	Where VerseWhere        `json:"where"`
-	Node  *VerseUpdateInput `json:"node,omitempty"`
+type VolumeBooksUpdateConnectionInput struct {
+	Where BookWhere        `json:"where"`
+	Node  *BookUpdateInput `json:"node,omitempty"`
 }
 
-type VerseGroupVersesDeleteFieldInput struct {
-	Where VerseWhere `json:"where"`
+type VolumeBooksDeleteFieldInput struct {
+	Where BookWhere `json:"where"`
 }
 
-type JSTPassage struct {
-	Id            string    `json:"id"`
-	Book          string    `json:"book"`
-	Chapter       string    `json:"chapter"`
-	Comprises     string    `json:"comprises"`
-	CompareRef    *string   `json:"compareRef,omitempty"`
-	Summary       *string   `json:"summary,omitempty"`
-	Text          string    `json:"text"`
-	Embedding     []float64 `json:"embedding"`
-	CompareVerses []*Verse  `json:"compareVerses,omitempty"`
+type BibleDictEntry struct {
+	Id        string            `json:"id"`
+	Name      string            `json:"name"`
+	Text      string            `json:"text"`
+	Embedding []float64         `json:"embedding"`
+	SeeAlso   []*BibleDictEntry `json:"seeAlso,omitempty"`
+	VerseRefs []*Verse          `json:"verseRefs,omitempty"`
 }
 
-type JSTPassageCreateInput struct {
-	Book       string    `json:"book"`
-	Chapter    string    `json:"chapter"`
-	Comprises  string    `json:"comprises"`
-	CompareRef *string   `json:"compareRef,omitempty"`
-	Summary    *string   `json:"summary,omitempty"`
-	Text       string    `json:"text"`
-	Embedding  []float64 `json:"embedding"`
+type BibleDictEntryCreateInput struct {
+	Id        *string   `json:"id,omitempty"`
+	Name      string    `json:"name"`
+	Text      string    `json:"text"`
+	Embedding []float64 `json:"embedding"`
 }
 
-type JSTPassageUpdateInput struct {
-	Book       *string   `json:"book,omitempty"`
-	Chapter    *string   `json:"chapter,omitempty"`
-	Comprises  *string   `json:"comprises,omitempty"`
-	CompareRef *string   `json:"compareRef,omitempty"`
-	Summary    *string   `json:"summary,omitempty"`
-	Text       *string   `json:"text,omitempty"`
-	Embedding  []float64 `json:"embedding,omitempty"`
+type BibleDictEntryUpdateInput struct {
+	Name      *string   `json:"name,omitempty"`
+	Text      *string   `json:"text,omitempty"`
+	Embedding []float64 `json:"embedding,omitempty"`
 }
 
-type JSTPassageWhere struct {
-	Id                   *string            `json:"id,omitempty"`
-	IdNot                *string            `json:"id_NOT,omitempty"`
-	IdIn                 []string           `json:"id_IN,omitempty"`
-	IdNotIn              []string           `json:"id_NOT_IN,omitempty"`
-	IdContains           *string            `json:"id_CONTAINS,omitempty"`
-	IdStartsWith         *string            `json:"id_STARTS_WITH,omitempty"`
-	IdEndsWith           *string            `json:"id_ENDS_WITH,omitempty"`
-	Book                 *string            `json:"book,omitempty"`
-	BookNot              *string            `json:"book_NOT,omitempty"`
-	BookIn               []string           `json:"book_IN,omitempty"`
-	BookNotIn            []string           `json:"book_NOT_IN,omitempty"`
-	BookGt               *string            `json:"book_GT,omitempty"`
-	BookGte              *string            `json:"book_GTE,omitempty"`
-	BookLt               *string            `json:"book_LT,omitempty"`
-	BookLte              *string            `json:"book_LTE,omitempty"`
-	BookContains         *string            `json:"book_CONTAINS,omitempty"`
-	BookStartsWith       *string            `json:"book_STARTS_WITH,omitempty"`
-	BookEndsWith         *string            `json:"book_ENDS_WITH,omitempty"`
-	Chapter              *string            `json:"chapter,omitempty"`
-	ChapterNot           *string            `json:"chapter_NOT,omitempty"`
-	ChapterIn            []string           `json:"chapter_IN,omitempty"`
-	ChapterNotIn         []string           `json:"chapter_NOT_IN,omitempty"`
-	ChapterGt            *string            `json:"chapter_GT,omitempty"`
-	ChapterGte           *string            `json:"chapter_GTE,omitempty"`
-	ChapterLt            *string            `json:"chapter_LT,omitempty"`
-	ChapterLte           *string            `json:"chapter_LTE,omitempty"`
-	ChapterContains      *string            `json:"chapter_CONTAINS,omitempty"`
-	ChapterStartsWith    *string            `json:"chapter_STARTS_WITH,omitempty"`
-	ChapterEndsWith      *string            `json:"chapter_ENDS_WITH,omitempty"`
-	Comprises            *string            `json:"comprises,omitempty"`
-	ComprisesNot         *string            `json:"comprises_NOT,omitempty"`
-	ComprisesIn          []string           `json:"comprises_IN,omitempty"`
-	ComprisesNotIn       []string           `json:"comprises_NOT_IN,omitempty"`
-	ComprisesGt          *string            `json:"comprises_GT,omitempty"`
-	ComprisesGte         *string            `json:"comprises_GTE,omitempty"`
-	ComprisesLt          *string            `json:"comprises_LT,omitempty"`
-	ComprisesLte         *string            `json:"comprises_LTE,omitempty"`
-	ComprisesContains    *string            `json:"comprises_CONTAINS,omitempty"`
-	ComprisesStartsWith  *string            `json:"comprises_STARTS_WITH,omitempty"`
-	ComprisesEndsWith    *string            `json:"comprises_ENDS_WITH,omitempty"`
-	CompareRef           *string            `json:"compareRef,omitempty"`
-	CompareRefNot        *string            `json:"compareRef_NOT,omitempty"`
-	CompareRefIn         []string           `json:"compareRef_IN,omitempty"`
-	CompareRefNotIn      []string           `json:"compareRef_NOT_IN,omitempty"`
-	CompareRefGt         *string            `json:"compareRef_GT,omitempty"`
-	CompareRefGte        *string            `json:"compareRef_GTE,omitempty"`
-	CompareRefLt         *string            `json:"compareRef_LT,omitempty"`
-	CompareRefLte        *string            `json:"compareRef_LTE,omitempty"`
-	CompareRefContains   *string            `json:"compareRef_CONTAINS,omitempty"`
-	CompareRefStartsWith *string            `json:"compareRef_STARTS_WITH,omitempty"`
-	CompareRefEndsWith   *string            `json:"compareRef_ENDS_WITH,omitempty"`
-	Summary              *string            `json:"summary,omitempty"`
-	SummaryNot           *string            `json:"summary_NOT,omitempty"`
-	SummaryIn            []string           `json:"summary_IN,omitempty"`
-	SummaryNotIn         []string           `json:"summary_NOT_IN,omitempty"`
-	SummaryGt            *string            `json:"summary_GT,omitempty"`
-	SummaryGte           *string            `json:"summary_GTE,omitempty"`
-	SummaryLt            *string            `json:"summary_LT,omitempty"`
-	SummaryLte           *string            `json:"summary_LTE,omitempty"`
-	SummaryContains      *string            `json:"summary_CONTAINS,omitempty"`
-	SummaryStartsWith    *string            `json:"summary_STARTS_WITH,omitempty"`
-	SummaryEndsWith      *string            `json:"summary_ENDS_WITH,omitempty"`
-	Text                 *string            `json:"text,omitempty"`
-	TextNot              *string            `json:"text_NOT,omitempty"`
-	TextIn               []string           `json:"text_IN,omitempty"`
-	TextNotIn            []string           `json:"text_NOT_IN,omitempty"`
-	TextGt               *string            `json:"text_GT,omitempty"`
-	TextGte              *string            `json:"text_GTE,omitempty"`
-	TextLt               *string            `json:"text_LT,omitempty"`
-	TextLte              *string            `json:"text_LTE,omitempty"`
-	TextContains         *string            `json:"text_CONTAINS,omitempty"`
-	TextStartsWith       *string            `json:"text_STARTS_WITH,omitempty"`
-	TextEndsWith         *string            `json:"text_ENDS_WITH,omitempty"`
-	Embedding            *[]float64         `json:"embedding,omitempty"`
-	EmbeddingNot         *[]float64         `json:"embedding_NOT,omitempty"`
-	EmbeddingIn          [][]float64        `json:"embedding_IN,omitempty"`
-	EmbeddingNotIn       [][]float64        `json:"embedding_NOT_IN,omitempty"`
-	EmbeddingGt          *[]float64         `json:"embedding_GT,omitempty"`
-	EmbeddingGte         *[]float64         `json:"embedding_GTE,omitempty"`
-	EmbeddingLt          *[]float64         `json:"embedding_LT,omitempty"`
-	EmbeddingLte         *[]float64         `json:"embedding_LTE,omitempty"`
-	AND                  []*JSTPassageWhere `json:"AND,omitempty"`
-	OR                   []*JSTPassageWhere `json:"OR,omitempty"`
-	NOT                  *JSTPassageWhere   `json:"NOT,omitempty"`
+type BibleDictEntryWhere struct {
+	Id             *string                `json:"id,omitempty"`
+	IdNot          *string                `json:"id_NOT,omitempty"`
+	IdIn           []string               `json:"id_IN,omitempty"`
+	IdNotIn        []string               `json:"id_NOT_IN,omitempty"`
+	IdContains     *string                `json:"id_CONTAINS,omitempty"`
+	IdStartsWith   *string                `json:"id_STARTS_WITH,omitempty"`
+	IdEndsWith     *string                `json:"id_ENDS_WITH,omitempty"`
+	Name           *string                `json:"name,omitempty"`
+	NameNot        *string                `json:"name_NOT,omitempty"`
+	NameIn         []string               `json:"name_IN,omitempty"`
+	NameNotIn      []string               `json:"name_NOT_IN,omitempty"`
+	NameGt         *string                `json:"name_GT,omitempty"`
+	NameGte        *string                `json:"name_GTE,omitempty"`
+	NameLt         *string                `json:"name_LT,omitempty"`
+	NameLte        *string                `json:"name_LTE,omitempty"`
+	NameContains   *string                `json:"name_CONTAINS,omitempty"`
+	NameStartsWith *string                `json:"name_STARTS_WITH,omitempty"`
+	NameEndsWith   *string                `json:"name_ENDS_WITH,omitempty"`
+	Text           *string                `json:"text,omitempty"`
+	TextNot        *string                `json:"text_NOT,omitempty"`
+	TextIn         []string               `json:"text_IN,omitempty"`
+	TextNotIn      []string               `json:"text_NOT_IN,omitempty"`
+	TextGt         *string                `json:"text_GT,omitempty"`
+	TextGte        *string                `json:"text_GTE,omitempty"`
+	TextLt         *string                `json:"text_LT,omitempty"`
+	TextLte        *string                `json:"text_LTE,omitempty"`
+	TextContains   *string                `json:"text_CONTAINS,omitempty"`
+	TextStartsWith *string                `json:"text_STARTS_WITH,omitempty"`
+	TextEndsWith   *string                `json:"text_ENDS_WITH,omitempty"`
+	Embedding      *[]float64             `json:"embedding,omitempty"`
+	EmbeddingNot   *[]float64             `json:"embedding_NOT,omitempty"`
+	EmbeddingIn    [][]float64            `json:"embedding_IN,omitempty"`
+	EmbeddingNotIn [][]float64            `json:"embedding_NOT_IN,omitempty"`
+	EmbeddingGt    *[]float64             `json:"embedding_GT,omitempty"`
+	EmbeddingGte   *[]float64             `json:"embedding_GTE,omitempty"`
+	EmbeddingLt    *[]float64             `json:"embedding_LT,omitempty"`
+	EmbeddingLte   *[]float64             `json:"embedding_LTE,omitempty"`
+	AND            []*BibleDictEntryWhere `json:"AND,omitempty"`
+	OR             []*BibleDictEntryWhere `json:"OR,omitempty"`
+	NOT            *BibleDictEntryWhere   `json:"NOT,omitempty"`
 }
 
-type JSTPassageSort struct {
-	Id         *SortDirection `json:"id,omitempty"`
-	Book       *SortDirection `json:"book,omitempty"`
-	Chapter    *SortDirection `json:"chapter,omitempty"`
-	Comprises  *SortDirection `json:"comprises,omitempty"`
-	CompareRef *SortDirection `json:"compareRef,omitempty"`
-	Summary    *SortDirection `json:"summary,omitempty"`
-	Text       *SortDirection `json:"text,omitempty"`
-	Embedding  *SortDirection `json:"embedding,omitempty"`
+type BibleDictEntrySort struct {
+	Id        *SortDirection `json:"id,omitempty"`
+	Name      *SortDirection `json:"name,omitempty"`
+	Text      *SortDirection `json:"text,omitempty"`
+	Embedding *SortDirection `json:"embedding,omitempty"`
 }
 
-type JSTPassagesConnection struct {
-	Edges      []*JSTPassageEdge `json:"edges"`
-	TotalCount int               `json:"totalCount"`
-	PageInfo   PageInfo          `json:"pageInfo"`
+type BibleDictEntrysConnection struct {
+	Edges      []*BibleDictEntryEdge `json:"edges"`
+	TotalCount int                   `json:"totalCount"`
+	PageInfo   PageInfo              `json:"pageInfo"`
 }
 
-type JSTPassageEdge struct {
-	Node   *JSTPassage `json:"node"`
-	Cursor string      `json:"cursor"`
+type BibleDictEntryEdge struct {
+	Node   *BibleDictEntry `json:"node"`
+	Cursor string          `json:"cursor"`
 }
 
-type CreateJSTPassagesMutationResponse struct {
-	JSTPassages []*JSTPassage `json:"jSTPassages"`
+type CreateBibleDictEntrysMutationResponse struct {
+	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
 }
 
-type UpdateJSTPassagesMutationResponse struct {
-	JSTPassages []*JSTPassage `json:"jSTPassages"`
+type UpdateBibleDictEntrysMutationResponse struct {
+	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
 }
 
-type JSTPassageSimilarResult struct {
-	Score float64     `json:"score"`
-	Node  *JSTPassage `json:"node"`
+type BibleDictEntrySimilarResult struct {
+	Score float64         `json:"score"`
+	Node  *BibleDictEntry `json:"node"`
 }
 
-type JSTPassageCompareVersesConnection struct {
-	Edges      []*JSTPassageCompareVersesEdge `json:"edges"`
+type BibleDictEntrySeeAlsoConnection struct {
+	Edges      []*BibleDictEntrySeeAlsoEdge `json:"edges"`
+	TotalCount int                          `json:"totalCount"`
+	PageInfo   PageInfo                     `json:"pageInfo"`
+}
+
+type BibleDictEntrySeeAlsoEdge struct {
+	Node   *BibleDictEntry `json:"node"`
+	Cursor string          `json:"cursor"`
+}
+
+type BibleDictEntrySeeAlsoFieldInput struct {
+	Create  []*BibleDictEntrySeeAlsoCreateFieldInput  `json:"create,omitempty"`
+	Connect []*BibleDictEntrySeeAlsoConnectFieldInput `json:"connect,omitempty"`
+}
+
+type BibleDictEntrySeeAlsoUpdateFieldInput struct {
+	Create     []*BibleDictEntrySeeAlsoCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*BibleDictEntrySeeAlsoConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*BibleDictEntrySeeAlsoDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*BibleDictEntrySeeAlsoUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*BibleDictEntrySeeAlsoDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type BibleDictEntrySeeAlsoCreateFieldInput struct {
+	Node BibleDictEntryCreateInput `json:"node"`
+}
+
+type BibleDictEntrySeeAlsoConnectFieldInput struct {
+	Where BibleDictEntryWhere `json:"where"`
+}
+
+type BibleDictEntrySeeAlsoDisconnectFieldInput struct {
+	Where BibleDictEntryWhere `json:"where"`
+}
+
+type BibleDictEntrySeeAlsoUpdateConnectionInput struct {
+	Where BibleDictEntryWhere        `json:"where"`
+	Node  *BibleDictEntryUpdateInput `json:"node,omitempty"`
+}
+
+type BibleDictEntrySeeAlsoDeleteFieldInput struct {
+	Where BibleDictEntryWhere `json:"where"`
+}
+
+type BibleDictEntryVerseRefsConnection struct {
+	Edges      []*BibleDictEntryVerseRefsEdge `json:"edges"`
 	TotalCount int                            `json:"totalCount"`
 	PageInfo   PageInfo                       `json:"pageInfo"`
 }
 
-type JSTPassageCompareVersesEdge struct {
-	Node   *Verse `json:"node"`
-	Cursor string `json:"cursor"`
+type BibleDictEntryVerseRefsEdge struct {
+	Node       *Verse           `json:"node"`
+	Cursor     string           `json:"cursor"`
+	Properties *BDVerseRefProps `json:"properties,omitempty"`
 }
 
-type JSTPassageCompareVersesFieldInput struct {
-	Create  []*JSTPassageCompareVersesCreateFieldInput  `json:"create,omitempty"`
-	Connect []*JSTPassageCompareVersesConnectFieldInput `json:"connect,omitempty"`
+type BibleDictEntryVerseRefsFieldInput struct {
+	Create  []*BibleDictEntryVerseRefsCreateFieldInput  `json:"create,omitempty"`
+	Connect []*BibleDictEntryVerseRefsConnectFieldInput `json:"connect,omitempty"`
 }
 
-type JSTPassageCompareVersesUpdateFieldInput struct {
-	Create     []*JSTPassageCompareVersesCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*JSTPassageCompareVersesConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*JSTPassageCompareVersesDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*JSTPassageCompareVersesUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*JSTPassageCompareVersesDeleteFieldInput      `json:"delete,omitempty"`
+type BibleDictEntryVerseRefsUpdateFieldInput struct {
+	Create     []*BibleDictEntryVerseRefsCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*BibleDictEntryVerseRefsConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*BibleDictEntryVerseRefsDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*BibleDictEntryVerseRefsUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*BibleDictEntryVerseRefsDeleteFieldInput      `json:"delete,omitempty"`
 }
 
-type JSTPassageCompareVersesCreateFieldInput struct {
-	Node VerseCreateInput `json:"node"`
+type BibleDictEntryVerseRefsCreateFieldInput struct {
+	Node VerseCreateInput            `json:"node"`
+	Edge *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
 }
 
-type JSTPassageCompareVersesConnectFieldInput struct {
+type BibleDictEntryVerseRefsConnectFieldInput struct {
+	Where VerseWhere                  `json:"where"`
+	Edge  *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
+}
+
+type BibleDictEntryVerseRefsDisconnectFieldInput struct {
 	Where VerseWhere `json:"where"`
 }
 
-type JSTPassageCompareVersesDisconnectFieldInput struct {
-	Where VerseWhere `json:"where"`
+type BibleDictEntryVerseRefsUpdateConnectionInput struct {
+	Where VerseWhere                  `json:"where"`
+	Node  *VerseUpdateInput           `json:"node,omitempty"`
+	Edge  *BDVerseRefPropsUpdateInput `json:"edge,omitempty"`
 }
 
-type JSTPassageCompareVersesUpdateConnectionInput struct {
-	Where VerseWhere        `json:"where"`
-	Node  *VerseUpdateInput `json:"node,omitempty"`
-}
-
-type JSTPassageCompareVersesDeleteFieldInput struct {
+type BibleDictEntryVerseRefsDeleteFieldInput struct {
 	Where VerseWhere `json:"where"`
 }
 
@@ -514,6 +443,7 @@ type Chapter struct {
 }
 
 type ChapterCreateInput struct {
+	Id               *string   `json:"id,omitempty"`
 	Number           int       `json:"number"`
 	Summary          *string   `json:"summary,omitempty"`
 	SummaryEmbedding []float64 `json:"summaryEmbedding"`
@@ -745,6 +675,385 @@ type ChapterVerseGroupsDeleteFieldInput struct {
 	Where VerseGroupWhere `json:"where"`
 }
 
+type VerseGroup struct {
+	Id               string     `json:"id"`
+	Text             string     `json:"text"`
+	StartVerseNumber int        `json:"startVerseNumber"`
+	EndVerseNumber   int        `json:"endVerseNumber"`
+	Embedding        []float64  `json:"embedding"`
+	Chapter          []*Chapter `json:"chapter,omitempty"`
+	Verses           []*Verse   `json:"verses,omitempty"`
+}
+
+type VerseGroupCreateInput struct {
+	Id               *string   `json:"id,omitempty"`
+	Text             string    `json:"text"`
+	StartVerseNumber int       `json:"startVerseNumber"`
+	EndVerseNumber   int       `json:"endVerseNumber"`
+	Embedding        []float64 `json:"embedding"`
+}
+
+type VerseGroupUpdateInput struct {
+	Text             *string   `json:"text,omitempty"`
+	StartVerseNumber *int      `json:"startVerseNumber,omitempty"`
+	EndVerseNumber   *int      `json:"endVerseNumber,omitempty"`
+	Embedding        []float64 `json:"embedding,omitempty"`
+}
+
+type VerseGroupWhere struct {
+	Id                    *string            `json:"id,omitempty"`
+	IdNot                 *string            `json:"id_NOT,omitempty"`
+	IdIn                  []string           `json:"id_IN,omitempty"`
+	IdNotIn               []string           `json:"id_NOT_IN,omitempty"`
+	IdContains            *string            `json:"id_CONTAINS,omitempty"`
+	IdStartsWith          *string            `json:"id_STARTS_WITH,omitempty"`
+	IdEndsWith            *string            `json:"id_ENDS_WITH,omitempty"`
+	Text                  *string            `json:"text,omitempty"`
+	TextNot               *string            `json:"text_NOT,omitempty"`
+	TextIn                []string           `json:"text_IN,omitempty"`
+	TextNotIn             []string           `json:"text_NOT_IN,omitempty"`
+	TextGt                *string            `json:"text_GT,omitempty"`
+	TextGte               *string            `json:"text_GTE,omitempty"`
+	TextLt                *string            `json:"text_LT,omitempty"`
+	TextLte               *string            `json:"text_LTE,omitempty"`
+	TextContains          *string            `json:"text_CONTAINS,omitempty"`
+	TextStartsWith        *string            `json:"text_STARTS_WITH,omitempty"`
+	TextEndsWith          *string            `json:"text_ENDS_WITH,omitempty"`
+	StartVerseNumber      *int               `json:"startVerseNumber,omitempty"`
+	StartVerseNumberNot   *int               `json:"startVerseNumber_NOT,omitempty"`
+	StartVerseNumberIn    []int              `json:"startVerseNumber_IN,omitempty"`
+	StartVerseNumberNotIn []int              `json:"startVerseNumber_NOT_IN,omitempty"`
+	StartVerseNumberGt    *int               `json:"startVerseNumber_GT,omitempty"`
+	StartVerseNumberGte   *int               `json:"startVerseNumber_GTE,omitempty"`
+	StartVerseNumberLt    *int               `json:"startVerseNumber_LT,omitempty"`
+	StartVerseNumberLte   *int               `json:"startVerseNumber_LTE,omitempty"`
+	EndVerseNumber        *int               `json:"endVerseNumber,omitempty"`
+	EndVerseNumberNot     *int               `json:"endVerseNumber_NOT,omitempty"`
+	EndVerseNumberIn      []int              `json:"endVerseNumber_IN,omitempty"`
+	EndVerseNumberNotIn   []int              `json:"endVerseNumber_NOT_IN,omitempty"`
+	EndVerseNumberGt      *int               `json:"endVerseNumber_GT,omitempty"`
+	EndVerseNumberGte     *int               `json:"endVerseNumber_GTE,omitempty"`
+	EndVerseNumberLt      *int               `json:"endVerseNumber_LT,omitempty"`
+	EndVerseNumberLte     *int               `json:"endVerseNumber_LTE,omitempty"`
+	Embedding             *[]float64         `json:"embedding,omitempty"`
+	EmbeddingNot          *[]float64         `json:"embedding_NOT,omitempty"`
+	EmbeddingIn           [][]float64        `json:"embedding_IN,omitempty"`
+	EmbeddingNotIn        [][]float64        `json:"embedding_NOT_IN,omitempty"`
+	EmbeddingGt           *[]float64         `json:"embedding_GT,omitempty"`
+	EmbeddingGte          *[]float64         `json:"embedding_GTE,omitempty"`
+	EmbeddingLt           *[]float64         `json:"embedding_LT,omitempty"`
+	EmbeddingLte          *[]float64         `json:"embedding_LTE,omitempty"`
+	AND                   []*VerseGroupWhere `json:"AND,omitempty"`
+	OR                    []*VerseGroupWhere `json:"OR,omitempty"`
+	NOT                   *VerseGroupWhere   `json:"NOT,omitempty"`
+}
+
+type VerseGroupSort struct {
+	Id               *SortDirection `json:"id,omitempty"`
+	Text             *SortDirection `json:"text,omitempty"`
+	StartVerseNumber *SortDirection `json:"startVerseNumber,omitempty"`
+	EndVerseNumber   *SortDirection `json:"endVerseNumber,omitempty"`
+	Embedding        *SortDirection `json:"embedding,omitempty"`
+}
+
+type VerseGroupsConnection struct {
+	Edges      []*VerseGroupEdge `json:"edges"`
+	TotalCount int               `json:"totalCount"`
+	PageInfo   PageInfo          `json:"pageInfo"`
+}
+
+type VerseGroupEdge struct {
+	Node   *VerseGroup `json:"node"`
+	Cursor string      `json:"cursor"`
+}
+
+type CreateVerseGroupsMutationResponse struct {
+	VerseGroups []*VerseGroup `json:"verseGroups"`
+}
+
+type UpdateVerseGroupsMutationResponse struct {
+	VerseGroups []*VerseGroup `json:"verseGroups"`
+}
+
+type VerseGroupSimilarResult struct {
+	Score float64     `json:"score"`
+	Node  *VerseGroup `json:"node"`
+}
+
+type VerseGroupChapterConnection struct {
+	Edges      []*VerseGroupChapterEdge `json:"edges"`
+	TotalCount int                      `json:"totalCount"`
+	PageInfo   PageInfo                 `json:"pageInfo"`
+}
+
+type VerseGroupChapterEdge struct {
+	Node   *Chapter `json:"node"`
+	Cursor string   `json:"cursor"`
+}
+
+type VerseGroupChapterFieldInput struct {
+	Create  []*VerseGroupChapterCreateFieldInput  `json:"create,omitempty"`
+	Connect []*VerseGroupChapterConnectFieldInput `json:"connect,omitempty"`
+}
+
+type VerseGroupChapterUpdateFieldInput struct {
+	Create     []*VerseGroupChapterCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*VerseGroupChapterConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*VerseGroupChapterDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*VerseGroupChapterUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*VerseGroupChapterDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type VerseGroupChapterCreateFieldInput struct {
+	Node ChapterCreateInput `json:"node"`
+}
+
+type VerseGroupChapterConnectFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
+type VerseGroupChapterDisconnectFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
+type VerseGroupChapterUpdateConnectionInput struct {
+	Where ChapterWhere        `json:"where"`
+	Node  *ChapterUpdateInput `json:"node,omitempty"`
+}
+
+type VerseGroupChapterDeleteFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
+type VerseGroupVersesConnection struct {
+	Edges      []*VerseGroupVersesEdge `json:"edges"`
+	TotalCount int                     `json:"totalCount"`
+	PageInfo   PageInfo                `json:"pageInfo"`
+}
+
+type VerseGroupVersesEdge struct {
+	Node   *Verse `json:"node"`
+	Cursor string `json:"cursor"`
+}
+
+type VerseGroupVersesFieldInput struct {
+	Create  []*VerseGroupVersesCreateFieldInput  `json:"create,omitempty"`
+	Connect []*VerseGroupVersesConnectFieldInput `json:"connect,omitempty"`
+}
+
+type VerseGroupVersesUpdateFieldInput struct {
+	Create     []*VerseGroupVersesCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*VerseGroupVersesConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*VerseGroupVersesDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*VerseGroupVersesUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*VerseGroupVersesDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type VerseGroupVersesCreateFieldInput struct {
+	Node VerseCreateInput `json:"node"`
+}
+
+type VerseGroupVersesConnectFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
+type VerseGroupVersesDisconnectFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
+type VerseGroupVersesUpdateConnectionInput struct {
+	Where VerseWhere        `json:"where"`
+	Node  *VerseUpdateInput `json:"node,omitempty"`
+}
+
+type VerseGroupVersesDeleteFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
+type Book struct {
+	Id       string     `json:"id"`
+	Name     string     `json:"name"`
+	Slug     string     `json:"slug"`
+	UrlPath  string     `json:"urlPath"`
+	Volume   []*Volume  `json:"volume,omitempty"`
+	Chapters []*Chapter `json:"chapters,omitempty"`
+}
+
+type BookCreateInput struct {
+	Id      *string `json:"id,omitempty"`
+	Name    string  `json:"name"`
+	Slug    string  `json:"slug"`
+	UrlPath string  `json:"urlPath"`
+}
+
+type BookUpdateInput struct {
+	Name    *string `json:"name,omitempty"`
+	Slug    *string `json:"slug,omitempty"`
+	UrlPath *string `json:"urlPath,omitempty"`
+}
+
+type BookWhere struct {
+	Id                *string      `json:"id,omitempty"`
+	IdNot             *string      `json:"id_NOT,omitempty"`
+	IdIn              []string     `json:"id_IN,omitempty"`
+	IdNotIn           []string     `json:"id_NOT_IN,omitempty"`
+	IdContains        *string      `json:"id_CONTAINS,omitempty"`
+	IdStartsWith      *string      `json:"id_STARTS_WITH,omitempty"`
+	IdEndsWith        *string      `json:"id_ENDS_WITH,omitempty"`
+	Name              *string      `json:"name,omitempty"`
+	NameNot           *string      `json:"name_NOT,omitempty"`
+	NameIn            []string     `json:"name_IN,omitempty"`
+	NameNotIn         []string     `json:"name_NOT_IN,omitempty"`
+	NameGt            *string      `json:"name_GT,omitempty"`
+	NameGte           *string      `json:"name_GTE,omitempty"`
+	NameLt            *string      `json:"name_LT,omitempty"`
+	NameLte           *string      `json:"name_LTE,omitempty"`
+	NameContains      *string      `json:"name_CONTAINS,omitempty"`
+	NameStartsWith    *string      `json:"name_STARTS_WITH,omitempty"`
+	NameEndsWith      *string      `json:"name_ENDS_WITH,omitempty"`
+	Slug              *string      `json:"slug,omitempty"`
+	SlugNot           *string      `json:"slug_NOT,omitempty"`
+	SlugIn            []string     `json:"slug_IN,omitempty"`
+	SlugNotIn         []string     `json:"slug_NOT_IN,omitempty"`
+	SlugGt            *string      `json:"slug_GT,omitempty"`
+	SlugGte           *string      `json:"slug_GTE,omitempty"`
+	SlugLt            *string      `json:"slug_LT,omitempty"`
+	SlugLte           *string      `json:"slug_LTE,omitempty"`
+	SlugContains      *string      `json:"slug_CONTAINS,omitempty"`
+	SlugStartsWith    *string      `json:"slug_STARTS_WITH,omitempty"`
+	SlugEndsWith      *string      `json:"slug_ENDS_WITH,omitempty"`
+	UrlPath           *string      `json:"urlPath,omitempty"`
+	UrlPathNot        *string      `json:"urlPath_NOT,omitempty"`
+	UrlPathIn         []string     `json:"urlPath_IN,omitempty"`
+	UrlPathNotIn      []string     `json:"urlPath_NOT_IN,omitempty"`
+	UrlPathGt         *string      `json:"urlPath_GT,omitempty"`
+	UrlPathGte        *string      `json:"urlPath_GTE,omitempty"`
+	UrlPathLt         *string      `json:"urlPath_LT,omitempty"`
+	UrlPathLte        *string      `json:"urlPath_LTE,omitempty"`
+	UrlPathContains   *string      `json:"urlPath_CONTAINS,omitempty"`
+	UrlPathStartsWith *string      `json:"urlPath_STARTS_WITH,omitempty"`
+	UrlPathEndsWith   *string      `json:"urlPath_ENDS_WITH,omitempty"`
+	AND               []*BookWhere `json:"AND,omitempty"`
+	OR                []*BookWhere `json:"OR,omitempty"`
+	NOT               *BookWhere   `json:"NOT,omitempty"`
+}
+
+type BookSort struct {
+	Id      *SortDirection `json:"id,omitempty"`
+	Name    *SortDirection `json:"name,omitempty"`
+	Slug    *SortDirection `json:"slug,omitempty"`
+	UrlPath *SortDirection `json:"urlPath,omitempty"`
+}
+
+type BooksConnection struct {
+	Edges      []*BookEdge `json:"edges"`
+	TotalCount int         `json:"totalCount"`
+	PageInfo   PageInfo    `json:"pageInfo"`
+}
+
+type BookEdge struct {
+	Node   *Book  `json:"node"`
+	Cursor string `json:"cursor"`
+}
+
+type CreateBooksMutationResponse struct {
+	Books []*Book `json:"books"`
+}
+
+type UpdateBooksMutationResponse struct {
+	Books []*Book `json:"books"`
+}
+
+type BookVolumeConnection struct {
+	Edges      []*BookVolumeEdge `json:"edges"`
+	TotalCount int               `json:"totalCount"`
+	PageInfo   PageInfo          `json:"pageInfo"`
+}
+
+type BookVolumeEdge struct {
+	Node   *Volume `json:"node"`
+	Cursor string  `json:"cursor"`
+}
+
+type BookVolumeFieldInput struct {
+	Create  []*BookVolumeCreateFieldInput  `json:"create,omitempty"`
+	Connect []*BookVolumeConnectFieldInput `json:"connect,omitempty"`
+}
+
+type BookVolumeUpdateFieldInput struct {
+	Create     []*BookVolumeCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*BookVolumeConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*BookVolumeDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*BookVolumeUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*BookVolumeDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type BookVolumeCreateFieldInput struct {
+	Node VolumeCreateInput `json:"node"`
+}
+
+type BookVolumeConnectFieldInput struct {
+	Where VolumeWhere `json:"where"`
+}
+
+type BookVolumeDisconnectFieldInput struct {
+	Where VolumeWhere `json:"where"`
+}
+
+type BookVolumeUpdateConnectionInput struct {
+	Where VolumeWhere        `json:"where"`
+	Node  *VolumeUpdateInput `json:"node,omitempty"`
+}
+
+type BookVolumeDeleteFieldInput struct {
+	Where VolumeWhere `json:"where"`
+}
+
+type BookChaptersConnection struct {
+	Edges      []*BookChaptersEdge `json:"edges"`
+	TotalCount int                 `json:"totalCount"`
+	PageInfo   PageInfo            `json:"pageInfo"`
+}
+
+type BookChaptersEdge struct {
+	Node   *Chapter `json:"node"`
+	Cursor string   `json:"cursor"`
+}
+
+type BookChaptersFieldInput struct {
+	Create  []*BookChaptersCreateFieldInput  `json:"create,omitempty"`
+	Connect []*BookChaptersConnectFieldInput `json:"connect,omitempty"`
+}
+
+type BookChaptersUpdateFieldInput struct {
+	Create     []*BookChaptersCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*BookChaptersConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*BookChaptersDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*BookChaptersUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*BookChaptersDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type BookChaptersCreateFieldInput struct {
+	Node ChapterCreateInput `json:"node"`
+}
+
+type BookChaptersConnectFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
+type BookChaptersDisconnectFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
+type BookChaptersUpdateConnectionInput struct {
+	Where ChapterWhere        `json:"where"`
+	Node  *ChapterUpdateInput `json:"node,omitempty"`
+}
+
+type BookChaptersDeleteFieldInput struct {
+	Where ChapterWhere `json:"where"`
+}
+
 type Verse struct {
 	Id                string               `json:"id"`
 	Number            int                  `json:"number"`
@@ -762,6 +1071,7 @@ type Verse struct {
 }
 
 type VerseCreateInput struct {
+	Id                *string `json:"id,omitempty"`
 	Number            int     `json:"number"`
 	Reference         string  `json:"reference"`
 	Text              string  `json:"text"`
@@ -1174,195 +1484,6 @@ type VerseJstFootnotesDeleteFieldInput struct {
 	Where JSTPassageWhere `json:"where"`
 }
 
-type BibleDictEntry struct {
-	Id        string            `json:"id"`
-	Name      string            `json:"name"`
-	Text      string            `json:"text"`
-	Embedding []float64         `json:"embedding"`
-	SeeAlso   []*BibleDictEntry `json:"seeAlso,omitempty"`
-	VerseRefs []*Verse          `json:"verseRefs,omitempty"`
-}
-
-type BibleDictEntryCreateInput struct {
-	Name      string    `json:"name"`
-	Text      string    `json:"text"`
-	Embedding []float64 `json:"embedding"`
-}
-
-type BibleDictEntryUpdateInput struct {
-	Name      *string   `json:"name,omitempty"`
-	Text      *string   `json:"text,omitempty"`
-	Embedding []float64 `json:"embedding,omitempty"`
-}
-
-type BibleDictEntryWhere struct {
-	Id             *string                `json:"id,omitempty"`
-	IdNot          *string                `json:"id_NOT,omitempty"`
-	IdIn           []string               `json:"id_IN,omitempty"`
-	IdNotIn        []string               `json:"id_NOT_IN,omitempty"`
-	IdContains     *string                `json:"id_CONTAINS,omitempty"`
-	IdStartsWith   *string                `json:"id_STARTS_WITH,omitempty"`
-	IdEndsWith     *string                `json:"id_ENDS_WITH,omitempty"`
-	Name           *string                `json:"name,omitempty"`
-	NameNot        *string                `json:"name_NOT,omitempty"`
-	NameIn         []string               `json:"name_IN,omitempty"`
-	NameNotIn      []string               `json:"name_NOT_IN,omitempty"`
-	NameGt         *string                `json:"name_GT,omitempty"`
-	NameGte        *string                `json:"name_GTE,omitempty"`
-	NameLt         *string                `json:"name_LT,omitempty"`
-	NameLte        *string                `json:"name_LTE,omitempty"`
-	NameContains   *string                `json:"name_CONTAINS,omitempty"`
-	NameStartsWith *string                `json:"name_STARTS_WITH,omitempty"`
-	NameEndsWith   *string                `json:"name_ENDS_WITH,omitempty"`
-	Text           *string                `json:"text,omitempty"`
-	TextNot        *string                `json:"text_NOT,omitempty"`
-	TextIn         []string               `json:"text_IN,omitempty"`
-	TextNotIn      []string               `json:"text_NOT_IN,omitempty"`
-	TextGt         *string                `json:"text_GT,omitempty"`
-	TextGte        *string                `json:"text_GTE,omitempty"`
-	TextLt         *string                `json:"text_LT,omitempty"`
-	TextLte        *string                `json:"text_LTE,omitempty"`
-	TextContains   *string                `json:"text_CONTAINS,omitempty"`
-	TextStartsWith *string                `json:"text_STARTS_WITH,omitempty"`
-	TextEndsWith   *string                `json:"text_ENDS_WITH,omitempty"`
-	Embedding      *[]float64             `json:"embedding,omitempty"`
-	EmbeddingNot   *[]float64             `json:"embedding_NOT,omitempty"`
-	EmbeddingIn    [][]float64            `json:"embedding_IN,omitempty"`
-	EmbeddingNotIn [][]float64            `json:"embedding_NOT_IN,omitempty"`
-	EmbeddingGt    *[]float64             `json:"embedding_GT,omitempty"`
-	EmbeddingGte   *[]float64             `json:"embedding_GTE,omitempty"`
-	EmbeddingLt    *[]float64             `json:"embedding_LT,omitempty"`
-	EmbeddingLte   *[]float64             `json:"embedding_LTE,omitempty"`
-	AND            []*BibleDictEntryWhere `json:"AND,omitempty"`
-	OR             []*BibleDictEntryWhere `json:"OR,omitempty"`
-	NOT            *BibleDictEntryWhere   `json:"NOT,omitempty"`
-}
-
-type BibleDictEntrySort struct {
-	Id        *SortDirection `json:"id,omitempty"`
-	Name      *SortDirection `json:"name,omitempty"`
-	Text      *SortDirection `json:"text,omitempty"`
-	Embedding *SortDirection `json:"embedding,omitempty"`
-}
-
-type BibleDictEntrysConnection struct {
-	Edges      []*BibleDictEntryEdge `json:"edges"`
-	TotalCount int                   `json:"totalCount"`
-	PageInfo   PageInfo              `json:"pageInfo"`
-}
-
-type BibleDictEntryEdge struct {
-	Node   *BibleDictEntry `json:"node"`
-	Cursor string          `json:"cursor"`
-}
-
-type CreateBibleDictEntrysMutationResponse struct {
-	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
-}
-
-type UpdateBibleDictEntrysMutationResponse struct {
-	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
-}
-
-type BibleDictEntrySimilarResult struct {
-	Score float64         `json:"score"`
-	Node  *BibleDictEntry `json:"node"`
-}
-
-type BibleDictEntrySeeAlsoConnection struct {
-	Edges      []*BibleDictEntrySeeAlsoEdge `json:"edges"`
-	TotalCount int                          `json:"totalCount"`
-	PageInfo   PageInfo                     `json:"pageInfo"`
-}
-
-type BibleDictEntrySeeAlsoEdge struct {
-	Node   *BibleDictEntry `json:"node"`
-	Cursor string          `json:"cursor"`
-}
-
-type BibleDictEntrySeeAlsoFieldInput struct {
-	Create  []*BibleDictEntrySeeAlsoCreateFieldInput  `json:"create,omitempty"`
-	Connect []*BibleDictEntrySeeAlsoConnectFieldInput `json:"connect,omitempty"`
-}
-
-type BibleDictEntrySeeAlsoUpdateFieldInput struct {
-	Create     []*BibleDictEntrySeeAlsoCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*BibleDictEntrySeeAlsoConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*BibleDictEntrySeeAlsoDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*BibleDictEntrySeeAlsoUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*BibleDictEntrySeeAlsoDeleteFieldInput      `json:"delete,omitempty"`
-}
-
-type BibleDictEntrySeeAlsoCreateFieldInput struct {
-	Node BibleDictEntryCreateInput `json:"node"`
-}
-
-type BibleDictEntrySeeAlsoConnectFieldInput struct {
-	Where BibleDictEntryWhere `json:"where"`
-}
-
-type BibleDictEntrySeeAlsoDisconnectFieldInput struct {
-	Where BibleDictEntryWhere `json:"where"`
-}
-
-type BibleDictEntrySeeAlsoUpdateConnectionInput struct {
-	Where BibleDictEntryWhere        `json:"where"`
-	Node  *BibleDictEntryUpdateInput `json:"node,omitempty"`
-}
-
-type BibleDictEntrySeeAlsoDeleteFieldInput struct {
-	Where BibleDictEntryWhere `json:"where"`
-}
-
-type BibleDictEntryVerseRefsConnection struct {
-	Edges      []*BibleDictEntryVerseRefsEdge `json:"edges"`
-	TotalCount int                            `json:"totalCount"`
-	PageInfo   PageInfo                       `json:"pageInfo"`
-}
-
-type BibleDictEntryVerseRefsEdge struct {
-	Node       *Verse           `json:"node"`
-	Cursor     string           `json:"cursor"`
-	Properties *BDVerseRefProps `json:"properties,omitempty"`
-}
-
-type BibleDictEntryVerseRefsFieldInput struct {
-	Create  []*BibleDictEntryVerseRefsCreateFieldInput  `json:"create,omitempty"`
-	Connect []*BibleDictEntryVerseRefsConnectFieldInput `json:"connect,omitempty"`
-}
-
-type BibleDictEntryVerseRefsUpdateFieldInput struct {
-	Create     []*BibleDictEntryVerseRefsCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*BibleDictEntryVerseRefsConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*BibleDictEntryVerseRefsDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*BibleDictEntryVerseRefsUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*BibleDictEntryVerseRefsDeleteFieldInput      `json:"delete,omitempty"`
-}
-
-type BibleDictEntryVerseRefsCreateFieldInput struct {
-	Node VerseCreateInput            `json:"node"`
-	Edge *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
-}
-
-type BibleDictEntryVerseRefsConnectFieldInput struct {
-	Where VerseWhere                  `json:"where"`
-	Edge  *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
-}
-
-type BibleDictEntryVerseRefsDisconnectFieldInput struct {
-	Where VerseWhere `json:"where"`
-}
-
-type BibleDictEntryVerseRefsUpdateConnectionInput struct {
-	Where VerseWhere                  `json:"where"`
-	Node  *VerseUpdateInput           `json:"node,omitempty"`
-	Edge  *BDVerseRefPropsUpdateInput `json:"edge,omitempty"`
-}
-
-type BibleDictEntryVerseRefsDeleteFieldInput struct {
-	Where VerseWhere `json:"where"`
-}
-
 type IndexEntry struct {
 	Id        string               `json:"id"`
 	Name      string               `json:"name"`
@@ -1374,6 +1495,7 @@ type IndexEntry struct {
 }
 
 type IndexEntryCreateInput struct {
+	Id        *string   `json:"id,omitempty"`
 	Name      string    `json:"name"`
 	Embedding []float64 `json:"embedding"`
 }
@@ -1629,6 +1751,206 @@ type IndexEntryVerseRefsDeleteFieldInput struct {
 	Where VerseWhere `json:"where"`
 }
 
+type JSTPassage struct {
+	Id            string    `json:"id"`
+	Book          string    `json:"book"`
+	Chapter       string    `json:"chapter"`
+	Comprises     string    `json:"comprises"`
+	CompareRef    *string   `json:"compareRef,omitempty"`
+	Summary       *string   `json:"summary,omitempty"`
+	Text          string    `json:"text"`
+	Embedding     []float64 `json:"embedding"`
+	CompareVerses []*Verse  `json:"compareVerses,omitempty"`
+}
+
+type JSTPassageCreateInput struct {
+	Id         *string   `json:"id,omitempty"`
+	Book       string    `json:"book"`
+	Chapter    string    `json:"chapter"`
+	Comprises  string    `json:"comprises"`
+	CompareRef *string   `json:"compareRef,omitempty"`
+	Summary    *string   `json:"summary,omitempty"`
+	Text       string    `json:"text"`
+	Embedding  []float64 `json:"embedding"`
+}
+
+type JSTPassageUpdateInput struct {
+	Book       *string   `json:"book,omitempty"`
+	Chapter    *string   `json:"chapter,omitempty"`
+	Comprises  *string   `json:"comprises,omitempty"`
+	CompareRef *string   `json:"compareRef,omitempty"`
+	Summary    *string   `json:"summary,omitempty"`
+	Text       *string   `json:"text,omitempty"`
+	Embedding  []float64 `json:"embedding,omitempty"`
+}
+
+type JSTPassageWhere struct {
+	Id                   *string            `json:"id,omitempty"`
+	IdNot                *string            `json:"id_NOT,omitempty"`
+	IdIn                 []string           `json:"id_IN,omitempty"`
+	IdNotIn              []string           `json:"id_NOT_IN,omitempty"`
+	IdContains           *string            `json:"id_CONTAINS,omitempty"`
+	IdStartsWith         *string            `json:"id_STARTS_WITH,omitempty"`
+	IdEndsWith           *string            `json:"id_ENDS_WITH,omitempty"`
+	Book                 *string            `json:"book,omitempty"`
+	BookNot              *string            `json:"book_NOT,omitempty"`
+	BookIn               []string           `json:"book_IN,omitempty"`
+	BookNotIn            []string           `json:"book_NOT_IN,omitempty"`
+	BookGt               *string            `json:"book_GT,omitempty"`
+	BookGte              *string            `json:"book_GTE,omitempty"`
+	BookLt               *string            `json:"book_LT,omitempty"`
+	BookLte              *string            `json:"book_LTE,omitempty"`
+	BookContains         *string            `json:"book_CONTAINS,omitempty"`
+	BookStartsWith       *string            `json:"book_STARTS_WITH,omitempty"`
+	BookEndsWith         *string            `json:"book_ENDS_WITH,omitempty"`
+	Chapter              *string            `json:"chapter,omitempty"`
+	ChapterNot           *string            `json:"chapter_NOT,omitempty"`
+	ChapterIn            []string           `json:"chapter_IN,omitempty"`
+	ChapterNotIn         []string           `json:"chapter_NOT_IN,omitempty"`
+	ChapterGt            *string            `json:"chapter_GT,omitempty"`
+	ChapterGte           *string            `json:"chapter_GTE,omitempty"`
+	ChapterLt            *string            `json:"chapter_LT,omitempty"`
+	ChapterLte           *string            `json:"chapter_LTE,omitempty"`
+	ChapterContains      *string            `json:"chapter_CONTAINS,omitempty"`
+	ChapterStartsWith    *string            `json:"chapter_STARTS_WITH,omitempty"`
+	ChapterEndsWith      *string            `json:"chapter_ENDS_WITH,omitempty"`
+	Comprises            *string            `json:"comprises,omitempty"`
+	ComprisesNot         *string            `json:"comprises_NOT,omitempty"`
+	ComprisesIn          []string           `json:"comprises_IN,omitempty"`
+	ComprisesNotIn       []string           `json:"comprises_NOT_IN,omitempty"`
+	ComprisesGt          *string            `json:"comprises_GT,omitempty"`
+	ComprisesGte         *string            `json:"comprises_GTE,omitempty"`
+	ComprisesLt          *string            `json:"comprises_LT,omitempty"`
+	ComprisesLte         *string            `json:"comprises_LTE,omitempty"`
+	ComprisesContains    *string            `json:"comprises_CONTAINS,omitempty"`
+	ComprisesStartsWith  *string            `json:"comprises_STARTS_WITH,omitempty"`
+	ComprisesEndsWith    *string            `json:"comprises_ENDS_WITH,omitempty"`
+	CompareRef           *string            `json:"compareRef,omitempty"`
+	CompareRefNot        *string            `json:"compareRef_NOT,omitempty"`
+	CompareRefIn         []string           `json:"compareRef_IN,omitempty"`
+	CompareRefNotIn      []string           `json:"compareRef_NOT_IN,omitempty"`
+	CompareRefGt         *string            `json:"compareRef_GT,omitempty"`
+	CompareRefGte        *string            `json:"compareRef_GTE,omitempty"`
+	CompareRefLt         *string            `json:"compareRef_LT,omitempty"`
+	CompareRefLte        *string            `json:"compareRef_LTE,omitempty"`
+	CompareRefContains   *string            `json:"compareRef_CONTAINS,omitempty"`
+	CompareRefStartsWith *string            `json:"compareRef_STARTS_WITH,omitempty"`
+	CompareRefEndsWith   *string            `json:"compareRef_ENDS_WITH,omitempty"`
+	Summary              *string            `json:"summary,omitempty"`
+	SummaryNot           *string            `json:"summary_NOT,omitempty"`
+	SummaryIn            []string           `json:"summary_IN,omitempty"`
+	SummaryNotIn         []string           `json:"summary_NOT_IN,omitempty"`
+	SummaryGt            *string            `json:"summary_GT,omitempty"`
+	SummaryGte           *string            `json:"summary_GTE,omitempty"`
+	SummaryLt            *string            `json:"summary_LT,omitempty"`
+	SummaryLte           *string            `json:"summary_LTE,omitempty"`
+	SummaryContains      *string            `json:"summary_CONTAINS,omitempty"`
+	SummaryStartsWith    *string            `json:"summary_STARTS_WITH,omitempty"`
+	SummaryEndsWith      *string            `json:"summary_ENDS_WITH,omitempty"`
+	Text                 *string            `json:"text,omitempty"`
+	TextNot              *string            `json:"text_NOT,omitempty"`
+	TextIn               []string           `json:"text_IN,omitempty"`
+	TextNotIn            []string           `json:"text_NOT_IN,omitempty"`
+	TextGt               *string            `json:"text_GT,omitempty"`
+	TextGte              *string            `json:"text_GTE,omitempty"`
+	TextLt               *string            `json:"text_LT,omitempty"`
+	TextLte              *string            `json:"text_LTE,omitempty"`
+	TextContains         *string            `json:"text_CONTAINS,omitempty"`
+	TextStartsWith       *string            `json:"text_STARTS_WITH,omitempty"`
+	TextEndsWith         *string            `json:"text_ENDS_WITH,omitempty"`
+	Embedding            *[]float64         `json:"embedding,omitempty"`
+	EmbeddingNot         *[]float64         `json:"embedding_NOT,omitempty"`
+	EmbeddingIn          [][]float64        `json:"embedding_IN,omitempty"`
+	EmbeddingNotIn       [][]float64        `json:"embedding_NOT_IN,omitempty"`
+	EmbeddingGt          *[]float64         `json:"embedding_GT,omitempty"`
+	EmbeddingGte         *[]float64         `json:"embedding_GTE,omitempty"`
+	EmbeddingLt          *[]float64         `json:"embedding_LT,omitempty"`
+	EmbeddingLte         *[]float64         `json:"embedding_LTE,omitempty"`
+	AND                  []*JSTPassageWhere `json:"AND,omitempty"`
+	OR                   []*JSTPassageWhere `json:"OR,omitempty"`
+	NOT                  *JSTPassageWhere   `json:"NOT,omitempty"`
+}
+
+type JSTPassageSort struct {
+	Id         *SortDirection `json:"id,omitempty"`
+	Book       *SortDirection `json:"book,omitempty"`
+	Chapter    *SortDirection `json:"chapter,omitempty"`
+	Comprises  *SortDirection `json:"comprises,omitempty"`
+	CompareRef *SortDirection `json:"compareRef,omitempty"`
+	Summary    *SortDirection `json:"summary,omitempty"`
+	Text       *SortDirection `json:"text,omitempty"`
+	Embedding  *SortDirection `json:"embedding,omitempty"`
+}
+
+type JSTPassagesConnection struct {
+	Edges      []*JSTPassageEdge `json:"edges"`
+	TotalCount int               `json:"totalCount"`
+	PageInfo   PageInfo          `json:"pageInfo"`
+}
+
+type JSTPassageEdge struct {
+	Node   *JSTPassage `json:"node"`
+	Cursor string      `json:"cursor"`
+}
+
+type CreateJSTPassagesMutationResponse struct {
+	JSTPassages []*JSTPassage `json:"jSTPassages"`
+}
+
+type UpdateJSTPassagesMutationResponse struct {
+	JSTPassages []*JSTPassage `json:"jSTPassages"`
+}
+
+type JSTPassageSimilarResult struct {
+	Score float64     `json:"score"`
+	Node  *JSTPassage `json:"node"`
+}
+
+type JSTPassageCompareVersesConnection struct {
+	Edges      []*JSTPassageCompareVersesEdge `json:"edges"`
+	TotalCount int                            `json:"totalCount"`
+	PageInfo   PageInfo                       `json:"pageInfo"`
+}
+
+type JSTPassageCompareVersesEdge struct {
+	Node   *Verse `json:"node"`
+	Cursor string `json:"cursor"`
+}
+
+type JSTPassageCompareVersesFieldInput struct {
+	Create  []*JSTPassageCompareVersesCreateFieldInput  `json:"create,omitempty"`
+	Connect []*JSTPassageCompareVersesConnectFieldInput `json:"connect,omitempty"`
+}
+
+type JSTPassageCompareVersesUpdateFieldInput struct {
+	Create     []*JSTPassageCompareVersesCreateFieldInput      `json:"create,omitempty"`
+	Connect    []*JSTPassageCompareVersesConnectFieldInput     `json:"connect,omitempty"`
+	Disconnect []*JSTPassageCompareVersesDisconnectFieldInput  `json:"disconnect,omitempty"`
+	Update     []*JSTPassageCompareVersesUpdateConnectionInput `json:"update,omitempty"`
+	Delete     []*JSTPassageCompareVersesDeleteFieldInput      `json:"delete,omitempty"`
+}
+
+type JSTPassageCompareVersesCreateFieldInput struct {
+	Node VerseCreateInput `json:"node"`
+}
+
+type JSTPassageCompareVersesConnectFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
+type JSTPassageCompareVersesDisconnectFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
+type JSTPassageCompareVersesUpdateConnectionInput struct {
+	Where VerseWhere        `json:"where"`
+	Node  *VerseUpdateInput `json:"node,omitempty"`
+}
+
+type JSTPassageCompareVersesDeleteFieldInput struct {
+	Where VerseWhere `json:"where"`
+}
+
 type TopicalGuideEntry struct {
 	Id        string               `json:"id"`
 	Name      string               `json:"name"`
@@ -1639,6 +1961,7 @@ type TopicalGuideEntry struct {
 }
 
 type TopicalGuideEntryCreateInput struct {
+	Id        *string   `json:"id,omitempty"`
 	Name      string    `json:"name"`
 	Embedding []float64 `json:"embedding"`
 }
@@ -1849,309 +2172,50 @@ type TopicalGuideEntryVerseRefsDeleteFieldInput struct {
 	Where VerseWhere `json:"where"`
 }
 
-type Volume struct {
-	Id           string  `json:"id"`
-	Name         string  `json:"name"`
-	Abbreviation string  `json:"abbreviation"`
-	Books        []*Book `json:"books,omitempty"`
-}
-
-type VolumeCreateInput struct {
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-}
-
-type VolumeUpdateInput struct {
+type VolumeMatchInput struct {
 	Name         *string `json:"name,omitempty"`
 	Abbreviation *string `json:"abbreviation,omitempty"`
 }
 
-type VolumeWhere struct {
-	Id                     *string        `json:"id,omitempty"`
-	IdNot                  *string        `json:"id_NOT,omitempty"`
-	IdIn                   []string       `json:"id_IN,omitempty"`
-	IdNotIn                []string       `json:"id_NOT_IN,omitempty"`
-	IdContains             *string        `json:"id_CONTAINS,omitempty"`
-	IdStartsWith           *string        `json:"id_STARTS_WITH,omitempty"`
-	IdEndsWith             *string        `json:"id_ENDS_WITH,omitempty"`
-	Name                   *string        `json:"name,omitempty"`
-	NameNot                *string        `json:"name_NOT,omitempty"`
-	NameIn                 []string       `json:"name_IN,omitempty"`
-	NameNotIn              []string       `json:"name_NOT_IN,omitempty"`
-	NameGt                 *string        `json:"name_GT,omitempty"`
-	NameGte                *string        `json:"name_GTE,omitempty"`
-	NameLt                 *string        `json:"name_LT,omitempty"`
-	NameLte                *string        `json:"name_LTE,omitempty"`
-	NameContains           *string        `json:"name_CONTAINS,omitempty"`
-	NameStartsWith         *string        `json:"name_STARTS_WITH,omitempty"`
-	NameEndsWith           *string        `json:"name_ENDS_WITH,omitempty"`
-	Abbreviation           *string        `json:"abbreviation,omitempty"`
-	AbbreviationNot        *string        `json:"abbreviation_NOT,omitempty"`
-	AbbreviationIn         []string       `json:"abbreviation_IN,omitempty"`
-	AbbreviationNotIn      []string       `json:"abbreviation_NOT_IN,omitempty"`
-	AbbreviationGt         *string        `json:"abbreviation_GT,omitempty"`
-	AbbreviationGte        *string        `json:"abbreviation_GTE,omitempty"`
-	AbbreviationLt         *string        `json:"abbreviation_LT,omitempty"`
-	AbbreviationLte        *string        `json:"abbreviation_LTE,omitempty"`
-	AbbreviationContains   *string        `json:"abbreviation_CONTAINS,omitempty"`
-	AbbreviationStartsWith *string        `json:"abbreviation_STARTS_WITH,omitempty"`
-	AbbreviationEndsWith   *string        `json:"abbreviation_ENDS_WITH,omitempty"`
-	AND                    []*VolumeWhere `json:"AND,omitempty"`
-	OR                     []*VolumeWhere `json:"OR,omitempty"`
-	NOT                    *VolumeWhere   `json:"NOT,omitempty"`
+type VolumeMergeInput struct {
+	Match    *VolumeMatchInput  `json:"match"`
+	OnCreate *VolumeCreateInput `json:"onCreate,omitempty"`
+	OnMatch  *VolumeUpdateInput `json:"onMatch,omitempty"`
 }
 
-type VolumeSort struct {
-	Id           *SortDirection `json:"id,omitempty"`
-	Name         *SortDirection `json:"name,omitempty"`
-	Abbreviation *SortDirection `json:"abbreviation,omitempty"`
-}
-
-type VolumesConnection struct {
-	Edges      []*VolumeEdge `json:"edges"`
-	TotalCount int           `json:"totalCount"`
-	PageInfo   PageInfo      `json:"pageInfo"`
-}
-
-type VolumeEdge struct {
-	Node   *Volume `json:"node"`
-	Cursor string  `json:"cursor"`
-}
-
-type CreateVolumesMutationResponse struct {
+type MergeVolumesMutationResponse struct {
 	Volumes []*Volume `json:"volumes"`
 }
 
-type UpdateVolumesMutationResponse struct {
-	Volumes []*Volume `json:"volumes"`
+type BibleDictEntryMatchInput struct {
+	Name *string `json:"name,omitempty"`
+	Text *string `json:"text,omitempty"`
 }
 
-type VolumeBooksConnection struct {
-	Edges      []*VolumeBooksEdge `json:"edges"`
-	TotalCount int                `json:"totalCount"`
-	PageInfo   PageInfo           `json:"pageInfo"`
+type BibleDictEntryMergeInput struct {
+	Match    *BibleDictEntryMatchInput  `json:"match"`
+	OnCreate *BibleDictEntryCreateInput `json:"onCreate,omitempty"`
+	OnMatch  *BibleDictEntryUpdateInput `json:"onMatch,omitempty"`
 }
 
-type VolumeBooksEdge struct {
-	Node   *Book  `json:"node"`
-	Cursor string `json:"cursor"`
+type MergeBibleDictEntrysMutationResponse struct {
+	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
 }
 
-type VolumeBooksFieldInput struct {
-	Create  []*VolumeBooksCreateFieldInput  `json:"create,omitempty"`
-	Connect []*VolumeBooksConnectFieldInput `json:"connect,omitempty"`
+type ChapterMatchInput struct {
+	Number  *int    `json:"number,omitempty"`
+	Summary *string `json:"summary,omitempty"`
+	Url     *string `json:"url,omitempty"`
 }
 
-type VolumeBooksUpdateFieldInput struct {
-	Create     []*VolumeBooksCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*VolumeBooksConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*VolumeBooksDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*VolumeBooksUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*VolumeBooksDeleteFieldInput      `json:"delete,omitempty"`
+type ChapterMergeInput struct {
+	Match    *ChapterMatchInput  `json:"match"`
+	OnCreate *ChapterCreateInput `json:"onCreate,omitempty"`
+	OnMatch  *ChapterUpdateInput `json:"onMatch,omitempty"`
 }
 
-type VolumeBooksCreateFieldInput struct {
-	Node BookCreateInput `json:"node"`
-}
-
-type VolumeBooksConnectFieldInput struct {
-	Where BookWhere `json:"where"`
-}
-
-type VolumeBooksDisconnectFieldInput struct {
-	Where BookWhere `json:"where"`
-}
-
-type VolumeBooksUpdateConnectionInput struct {
-	Where BookWhere        `json:"where"`
-	Node  *BookUpdateInput `json:"node,omitempty"`
-}
-
-type VolumeBooksDeleteFieldInput struct {
-	Where BookWhere `json:"where"`
-}
-
-type Book struct {
-	Id       string     `json:"id"`
-	Name     string     `json:"name"`
-	Slug     string     `json:"slug"`
-	UrlPath  string     `json:"urlPath"`
-	Volume   []*Volume  `json:"volume,omitempty"`
-	Chapters []*Chapter `json:"chapters,omitempty"`
-}
-
-type BookCreateInput struct {
-	Name    string `json:"name"`
-	Slug    string `json:"slug"`
-	UrlPath string `json:"urlPath"`
-}
-
-type BookUpdateInput struct {
-	Name    *string `json:"name,omitempty"`
-	Slug    *string `json:"slug,omitempty"`
-	UrlPath *string `json:"urlPath,omitempty"`
-}
-
-type BookWhere struct {
-	Id                *string      `json:"id,omitempty"`
-	IdNot             *string      `json:"id_NOT,omitempty"`
-	IdIn              []string     `json:"id_IN,omitempty"`
-	IdNotIn           []string     `json:"id_NOT_IN,omitempty"`
-	IdContains        *string      `json:"id_CONTAINS,omitempty"`
-	IdStartsWith      *string      `json:"id_STARTS_WITH,omitempty"`
-	IdEndsWith        *string      `json:"id_ENDS_WITH,omitempty"`
-	Name              *string      `json:"name,omitempty"`
-	NameNot           *string      `json:"name_NOT,omitempty"`
-	NameIn            []string     `json:"name_IN,omitempty"`
-	NameNotIn         []string     `json:"name_NOT_IN,omitempty"`
-	NameGt            *string      `json:"name_GT,omitempty"`
-	NameGte           *string      `json:"name_GTE,omitempty"`
-	NameLt            *string      `json:"name_LT,omitempty"`
-	NameLte           *string      `json:"name_LTE,omitempty"`
-	NameContains      *string      `json:"name_CONTAINS,omitempty"`
-	NameStartsWith    *string      `json:"name_STARTS_WITH,omitempty"`
-	NameEndsWith      *string      `json:"name_ENDS_WITH,omitempty"`
-	Slug              *string      `json:"slug,omitempty"`
-	SlugNot           *string      `json:"slug_NOT,omitempty"`
-	SlugIn            []string     `json:"slug_IN,omitempty"`
-	SlugNotIn         []string     `json:"slug_NOT_IN,omitempty"`
-	SlugGt            *string      `json:"slug_GT,omitempty"`
-	SlugGte           *string      `json:"slug_GTE,omitempty"`
-	SlugLt            *string      `json:"slug_LT,omitempty"`
-	SlugLte           *string      `json:"slug_LTE,omitempty"`
-	SlugContains      *string      `json:"slug_CONTAINS,omitempty"`
-	SlugStartsWith    *string      `json:"slug_STARTS_WITH,omitempty"`
-	SlugEndsWith      *string      `json:"slug_ENDS_WITH,omitempty"`
-	UrlPath           *string      `json:"urlPath,omitempty"`
-	UrlPathNot        *string      `json:"urlPath_NOT,omitempty"`
-	UrlPathIn         []string     `json:"urlPath_IN,omitempty"`
-	UrlPathNotIn      []string     `json:"urlPath_NOT_IN,omitempty"`
-	UrlPathGt         *string      `json:"urlPath_GT,omitempty"`
-	UrlPathGte        *string      `json:"urlPath_GTE,omitempty"`
-	UrlPathLt         *string      `json:"urlPath_LT,omitempty"`
-	UrlPathLte        *string      `json:"urlPath_LTE,omitempty"`
-	UrlPathContains   *string      `json:"urlPath_CONTAINS,omitempty"`
-	UrlPathStartsWith *string      `json:"urlPath_STARTS_WITH,omitempty"`
-	UrlPathEndsWith   *string      `json:"urlPath_ENDS_WITH,omitempty"`
-	AND               []*BookWhere `json:"AND,omitempty"`
-	OR                []*BookWhere `json:"OR,omitempty"`
-	NOT               *BookWhere   `json:"NOT,omitempty"`
-}
-
-type BookSort struct {
-	Id      *SortDirection `json:"id,omitempty"`
-	Name    *SortDirection `json:"name,omitempty"`
-	Slug    *SortDirection `json:"slug,omitempty"`
-	UrlPath *SortDirection `json:"urlPath,omitempty"`
-}
-
-type BooksConnection struct {
-	Edges      []*BookEdge `json:"edges"`
-	TotalCount int         `json:"totalCount"`
-	PageInfo   PageInfo    `json:"pageInfo"`
-}
-
-type BookEdge struct {
-	Node   *Book  `json:"node"`
-	Cursor string `json:"cursor"`
-}
-
-type CreateBooksMutationResponse struct {
-	Books []*Book `json:"books"`
-}
-
-type UpdateBooksMutationResponse struct {
-	Books []*Book `json:"books"`
-}
-
-type BookVolumeConnection struct {
-	Edges      []*BookVolumeEdge `json:"edges"`
-	TotalCount int               `json:"totalCount"`
-	PageInfo   PageInfo          `json:"pageInfo"`
-}
-
-type BookVolumeEdge struct {
-	Node   *Volume `json:"node"`
-	Cursor string  `json:"cursor"`
-}
-
-type BookVolumeFieldInput struct {
-	Create  []*BookVolumeCreateFieldInput  `json:"create,omitempty"`
-	Connect []*BookVolumeConnectFieldInput `json:"connect,omitempty"`
-}
-
-type BookVolumeUpdateFieldInput struct {
-	Create     []*BookVolumeCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*BookVolumeConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*BookVolumeDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*BookVolumeUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*BookVolumeDeleteFieldInput      `json:"delete,omitempty"`
-}
-
-type BookVolumeCreateFieldInput struct {
-	Node VolumeCreateInput `json:"node"`
-}
-
-type BookVolumeConnectFieldInput struct {
-	Where VolumeWhere `json:"where"`
-}
-
-type BookVolumeDisconnectFieldInput struct {
-	Where VolumeWhere `json:"where"`
-}
-
-type BookVolumeUpdateConnectionInput struct {
-	Where VolumeWhere        `json:"where"`
-	Node  *VolumeUpdateInput `json:"node,omitempty"`
-}
-
-type BookVolumeDeleteFieldInput struct {
-	Where VolumeWhere `json:"where"`
-}
-
-type BookChaptersConnection struct {
-	Edges      []*BookChaptersEdge `json:"edges"`
-	TotalCount int                 `json:"totalCount"`
-	PageInfo   PageInfo            `json:"pageInfo"`
-}
-
-type BookChaptersEdge struct {
-	Node   *Chapter `json:"node"`
-	Cursor string   `json:"cursor"`
-}
-
-type BookChaptersFieldInput struct {
-	Create  []*BookChaptersCreateFieldInput  `json:"create,omitempty"`
-	Connect []*BookChaptersConnectFieldInput `json:"connect,omitempty"`
-}
-
-type BookChaptersUpdateFieldInput struct {
-	Create     []*BookChaptersCreateFieldInput      `json:"create,omitempty"`
-	Connect    []*BookChaptersConnectFieldInput     `json:"connect,omitempty"`
-	Disconnect []*BookChaptersDisconnectFieldInput  `json:"disconnect,omitempty"`
-	Update     []*BookChaptersUpdateConnectionInput `json:"update,omitempty"`
-	Delete     []*BookChaptersDeleteFieldInput      `json:"delete,omitempty"`
-}
-
-type BookChaptersCreateFieldInput struct {
-	Node ChapterCreateInput `json:"node"`
-}
-
-type BookChaptersConnectFieldInput struct {
-	Where ChapterWhere `json:"where"`
-}
-
-type BookChaptersDisconnectFieldInput struct {
-	Where ChapterWhere `json:"where"`
-}
-
-type BookChaptersUpdateConnectionInput struct {
-	Where ChapterWhere        `json:"where"`
-	Node  *ChapterUpdateInput `json:"node,omitempty"`
-}
-
-type BookChaptersDeleteFieldInput struct {
-	Where ChapterWhere `json:"where"`
+type MergeChaptersMutationResponse struct {
+	Chapters []*Chapter `json:"chapters"`
 }
 
 type VerseGroupMatchInput struct {
@@ -2170,39 +2234,20 @@ type MergeVerseGroupsMutationResponse struct {
 	VerseGroups []*VerseGroup `json:"verseGroups"`
 }
 
-type JSTPassageMatchInput struct {
-	Book       *string `json:"book,omitempty"`
-	Chapter    *string `json:"chapter,omitempty"`
-	Comprises  *string `json:"comprises,omitempty"`
-	CompareRef *string `json:"compareRef,omitempty"`
-	Summary    *string `json:"summary,omitempty"`
-	Text       *string `json:"text,omitempty"`
+type BookMatchInput struct {
+	Name    *string `json:"name,omitempty"`
+	Slug    *string `json:"slug,omitempty"`
+	UrlPath *string `json:"urlPath,omitempty"`
 }
 
-type JSTPassageMergeInput struct {
-	Match    *JSTPassageMatchInput  `json:"match"`
-	OnCreate *JSTPassageCreateInput `json:"onCreate,omitempty"`
-	OnMatch  *JSTPassageUpdateInput `json:"onMatch,omitempty"`
+type BookMergeInput struct {
+	Match    *BookMatchInput  `json:"match"`
+	OnCreate *BookCreateInput `json:"onCreate,omitempty"`
+	OnMatch  *BookUpdateInput `json:"onMatch,omitempty"`
 }
 
-type MergeJSTPassagesMutationResponse struct {
-	JSTPassages []*JSTPassage `json:"jSTPassages"`
-}
-
-type ChapterMatchInput struct {
-	Number  *int    `json:"number,omitempty"`
-	Summary *string `json:"summary,omitempty"`
-	Url     *string `json:"url,omitempty"`
-}
-
-type ChapterMergeInput struct {
-	Match    *ChapterMatchInput  `json:"match"`
-	OnCreate *ChapterCreateInput `json:"onCreate,omitempty"`
-	OnMatch  *ChapterUpdateInput `json:"onMatch,omitempty"`
-}
-
-type MergeChaptersMutationResponse struct {
-	Chapters []*Chapter `json:"chapters"`
+type MergeBooksMutationResponse struct {
+	Books []*Book `json:"books"`
 }
 
 type VerseMatchInput struct {
@@ -2224,21 +2269,6 @@ type MergeVersesMutationResponse struct {
 	Verses []*Verse `json:"verses"`
 }
 
-type BibleDictEntryMatchInput struct {
-	Name *string `json:"name,omitempty"`
-	Text *string `json:"text,omitempty"`
-}
-
-type BibleDictEntryMergeInput struct {
-	Match    *BibleDictEntryMatchInput  `json:"match"`
-	OnCreate *BibleDictEntryCreateInput `json:"onCreate,omitempty"`
-	OnMatch  *BibleDictEntryUpdateInput `json:"onMatch,omitempty"`
-}
-
-type MergeBibleDictEntrysMutationResponse struct {
-	BibleDictEntrys []*BibleDictEntry `json:"bibleDictEntries"`
-}
-
 type IndexEntryMatchInput struct {
 	Name *string `json:"name,omitempty"`
 }
@@ -2251,6 +2281,25 @@ type IndexEntryMergeInput struct {
 
 type MergeIndexEntrysMutationResponse struct {
 	IndexEntrys []*IndexEntry `json:"indexEntries"`
+}
+
+type JSTPassageMatchInput struct {
+	Book       *string `json:"book,omitempty"`
+	Chapter    *string `json:"chapter,omitempty"`
+	Comprises  *string `json:"comprises,omitempty"`
+	CompareRef *string `json:"compareRef,omitempty"`
+	Summary    *string `json:"summary,omitempty"`
+	Text       *string `json:"text,omitempty"`
+}
+
+type JSTPassageMergeInput struct {
+	Match    *JSTPassageMatchInput  `json:"match"`
+	OnCreate *JSTPassageCreateInput `json:"onCreate,omitempty"`
+	OnMatch  *JSTPassageUpdateInput `json:"onMatch,omitempty"`
+}
+
+type MergeJSTPassagesMutationResponse struct {
+	JSTPassages []*JSTPassage `json:"jSTPassages"`
 }
 
 type TopicalGuideEntryMatchInput struct {
@@ -2267,54 +2316,24 @@ type MergeTopicalGuideEntrysMutationResponse struct {
 	TopicalGuideEntrys []*TopicalGuideEntry `json:"topicalGuideEntries"`
 }
 
-type VolumeMatchInput struct {
-	Name         *string `json:"name,omitempty"`
-	Abbreviation *string `json:"abbreviation,omitempty"`
-}
-
-type VolumeMergeInput struct {
-	Match    *VolumeMatchInput  `json:"match"`
-	OnCreate *VolumeCreateInput `json:"onCreate,omitempty"`
-	OnMatch  *VolumeUpdateInput `json:"onMatch,omitempty"`
-}
-
-type MergeVolumesMutationResponse struct {
-	Volumes []*Volume `json:"volumes"`
-}
-
-type BookMatchInput struct {
-	Name    *string `json:"name,omitempty"`
-	Slug    *string `json:"slug,omitempty"`
-	UrlPath *string `json:"urlPath,omitempty"`
-}
-
-type BookMergeInput struct {
-	Match    *BookMatchInput  `json:"match"`
-	OnCreate *BookCreateInput `json:"onCreate,omitempty"`
-	OnMatch  *BookUpdateInput `json:"onMatch,omitempty"`
-}
-
-type MergeBooksMutationResponse struct {
-	Books []*Book `json:"books"`
-}
-
-type ConnectVerseGroupChapterInput struct {
-	From *VerseGroupWhere `json:"from"`
-	To   *ChapterWhere    `json:"to"`
+type ConnectVolumeBooksInput struct {
+	From *VolumeWhere `json:"from"`
+	To   *BookWhere   `json:"to"`
 }
 
 type ConnectInfo struct {
 	RelationshipsCreated int `json:"relationshipsCreated"`
 }
 
-type ConnectVerseGroupVersesInput struct {
-	From *VerseGroupWhere `json:"from"`
-	To   *VerseWhere      `json:"to"`
+type ConnectBibleDictEntrySeeAlsoInput struct {
+	From *BibleDictEntryWhere `json:"from"`
+	To   *BibleDictEntryWhere `json:"to"`
 }
 
-type ConnectJSTPassageCompareVersesInput struct {
-	From *JSTPassageWhere `json:"from"`
-	To   *VerseWhere      `json:"to"`
+type ConnectBibleDictEntryVerseRefsInput struct {
+	From *BibleDictEntryWhere        `json:"from"`
+	To   *VerseWhere                 `json:"to"`
+	Edge *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
 }
 
 type ConnectChapterBookInput struct {
@@ -2330,6 +2349,26 @@ type ConnectChapterVersesInput struct {
 type ConnectChapterVerseGroupsInput struct {
 	From *ChapterWhere    `json:"from"`
 	To   *VerseGroupWhere `json:"to"`
+}
+
+type ConnectVerseGroupChapterInput struct {
+	From *VerseGroupWhere `json:"from"`
+	To   *ChapterWhere    `json:"to"`
+}
+
+type ConnectVerseGroupVersesInput struct {
+	From *VerseGroupWhere `json:"from"`
+	To   *VerseWhere      `json:"to"`
+}
+
+type ConnectBookVolumeInput struct {
+	From *BookWhere   `json:"from"`
+	To   *VolumeWhere `json:"to"`
+}
+
+type ConnectBookChaptersInput struct {
+	From *BookWhere    `json:"from"`
+	To   *ChapterWhere `json:"to"`
 }
 
 type ConnectVerseChapterInput struct {
@@ -2367,17 +2406,6 @@ type ConnectVerseJstFootnotesInput struct {
 	Edge *VerseJSTRefPropsCreateInput `json:"edge,omitempty"`
 }
 
-type ConnectBibleDictEntrySeeAlsoInput struct {
-	From *BibleDictEntryWhere `json:"from"`
-	To   *BibleDictEntryWhere `json:"to"`
-}
-
-type ConnectBibleDictEntryVerseRefsInput struct {
-	From *BibleDictEntryWhere        `json:"from"`
-	To   *VerseWhere                 `json:"to"`
-	Edge *BDVerseRefPropsCreateInput `json:"edge,omitempty"`
-}
-
 type ConnectIndexEntrySeeAlsoInput struct {
 	From *IndexEntryWhere `json:"from"`
 	To   *IndexEntryWhere `json:"to"`
@@ -2399,6 +2427,11 @@ type ConnectIndexEntryVerseRefsInput struct {
 	Edge *IDXVerseRefPropsCreateInput `json:"edge,omitempty"`
 }
 
+type ConnectJSTPassageCompareVersesInput struct {
+	From *JSTPassageWhere `json:"from"`
+	To   *VerseWhere      `json:"to"`
+}
+
 type ConnectTopicalGuideEntrySeeAlsoInput struct {
 	From *TopicalGuideEntryWhere `json:"from"`
 	To   *TopicalGuideEntryWhere `json:"to"`
@@ -2413,19 +2446,4 @@ type ConnectTopicalGuideEntryVerseRefsInput struct {
 	From *TopicalGuideEntryWhere     `json:"from"`
 	To   *VerseWhere                 `json:"to"`
 	Edge *TGVerseRefPropsCreateInput `json:"edge,omitempty"`
-}
-
-type ConnectVolumeBooksInput struct {
-	From *VolumeWhere `json:"from"`
-	To   *BookWhere   `json:"to"`
-}
-
-type ConnectBookVolumeInput struct {
-	From *BookWhere   `json:"from"`
-	To   *VolumeWhere `json:"to"`
-}
-
-type ConnectBookChaptersInput struct {
-	From *BookWhere    `json:"from"`
-	To   *ChapterWhere `json:"to"`
 }

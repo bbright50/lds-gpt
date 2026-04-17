@@ -4,20 +4,20 @@ import (
 	"context"
 	"fmt"
 
-	"lds-gpt/internal/bedrockembedding"
+	"lds-gpt/internal/embedding"
 	"lds-gpt/internal/falkor"
 )
 
-// App wires a FalkorDB client and a Bedrock embedding client into the CLI /
+// App wires a FalkorDB client and an embedding client into the CLI /
 // (future) HTTP entry point. DoContextualSearch embeds the user's query
 // once and hands the []float32 straight to falkor — no more byte-packing
 // via internal/utils/vec because FalkorDB's vecf32() accepts floats directly.
 type App struct {
 	fc          *falkor.Client
-	embedClient bedrockembedding.Client
+	embedClient embedding.Client
 }
 
-func NewApp(fc *falkor.Client, embedClient bedrockembedding.Client) *App {
+func NewApp(fc *falkor.Client, embedClient embedding.Client) *App {
 	return &App{fc: fc, embedClient: embedClient}
 }
 

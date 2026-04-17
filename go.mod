@@ -2,13 +2,18 @@ module lds-gpt
 
 go 1.25.0
 
+// Local fork of go-ormql with patches for:
+//   * pluralization bug (translator used naive +s, generator used go-pluralize)
+//   * @vector query rewrite missing vecf32() wrap on the vector param
+//   * @vector update/create SET emission missing vecf32() wrap
+// See .claudemod/spec and internal/falkor/*_spike_test.go for the original
+// bug reproductions.
+replace github.com/tab58/go-ormql => ../go-ormql
+
 require (
 	github.com/FalkorDB/falkordb-go/v2 v2.1.0
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/alitto/pond/v2 v2.6.0
-	github.com/aws/aws-sdk-go-v2 v1.41.1
-	github.com/aws/aws-sdk-go-v2/config v1.32.7
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.49.0
 	github.com/spf13/viper v1.21.0
 	github.com/tab58/go-ormql v0.0.0-20260325183105-729b071df374
 	github.com/testcontainers/testcontainers-go v0.42.0
@@ -22,19 +27,6 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.7 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.13 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6 // indirect
-	github.com/aws/smithy-go v1.24.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.6.0 // indirect

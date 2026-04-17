@@ -52,15 +52,12 @@ func TestMigrate_CreatesAllSixVectorIndexes(t *testing.T) {
 	}
 }
 
-// TestVectorSimilarity_ViaRawClient is the critical Phase B validation. Stage
-// 1 of DoContextualSearch runs kNN through the raw handle — go-ormql's
-// FalkorDB driver has a known bug: its rewrite of @vector queries emits
-// `CALL db.idx.vector.queryNodes($rw0, $rw1, $rw2, $rw3)` without wrapping
-// `$rw3` in `vecf32(...)`, and FalkorDB ≥ 4.18 rejects a plain LIST<FLOAT>
-// where a Vectorf32 is expected. We route Stage-1 through Client.Raw() and
-// keep go-ormql for typed CRUD + graph traversal. See .claudemod/spec/search
-// for the division of responsibilities.
-func TestVectorSimilarity_ViaRawClient(t *testing.T) {
+// TestVectorSimilarity_ViaTypedClient exercises Stage-1 kNN through the
+// go-ormql generated client (verseGroupsSimilar), which compiles down to
+// `CALL db.idx.vector.queryNodes(..., vecf32(...))` after the fork-patched
+// driver rewrite. Asserts cosine-distance ordering for a known directional
+// seed set.
+func TestVectorSimilarity_ViaTypedClient(t *testing.T) {
 	client := StartFalkorContainer(t)
 	ctx := context.Background()
 
@@ -68,13 +65,6 @@ func TestVectorSimilarity_ViaRawClient(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// Three directional vectors. v1 along axis 0 (identical to query), v2
-	// a 45° mix of axes 0+1, v3 along axis 1 — so cosine similarity to the
-	// query ≈ 1.0, 0.707, 0.001 respectively. Every element is a non-integer
-	// float so falkordb-go's ToString serializes with decimal points (integer
-	// stringification would type the param as LIST<INTEGER> and fail).
-	// VerseGroup is the primary RAG retrieval unit — it owns the @vector
-	// embedding in the schema, so kNN targets VerseGroup rather than Verse.
 	seeds := []struct {
 		ref string
 		vec []float64
@@ -93,23 +83,27 @@ func TestVectorSimilarity_ViaRawClient(t *testing.T) {
 		}
 	}
 
-	res, err := client.Raw().Query(
-		`CALL db.idx.vector.queryNodes('VerseGroup', 'embedding', 3, vecf32($q))
-		 YIELD node, score
-		 RETURN node.id AS id, score
-		 ORDER BY score ASC`,
-		map[string]interface{}{"q": toAnySlice(queryVec())},
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("kNN via raw: %v", err)
+	var out struct {
+		Hits []struct {
+			Score float64 `json:"score"`
+			Node  struct {
+				Id string `json:"id"`
+			} `json:"node"`
+		} `json:"verseGroupsSimilar"`
+	}
+	if err := execQuery(ctx, client.GraphQL(), `
+		query ($vec: [Float!]!, $first: Int) {
+		  verseGroupsSimilar(vector: $vec, first: $first) {
+		    score
+		    node { id }
+		  }
+		}`, map[string]any{"vec": toAnySlice(queryVec()), "first": 3}, &out); err != nil {
+		t.Fatalf("verseGroupsSimilar: %v", err)
 	}
 
-	var got []string
-	for res.Next() {
-		rec := res.Record()
-		id, _ := rec.GetByIndex(0)
-		got = append(got, id.(string))
+	got := make([]string, 0, len(out.Hits))
+	for _, h := range out.Hits {
+		got = append(got, h.Node.Id)
 	}
 	want := []string{"g1", "g2", "g3"}
 	if len(got) != len(want) {
@@ -189,14 +183,87 @@ func TestGraphTraversal_ViaGeneratedClient(t *testing.T) {
 	}
 }
 
-// TestGeneratedClient_VectorQuery_KnownBug pins the current go-ormql FalkorDB
-// driver limitation so a regression is visible if we ever try to route kNN
-// through the typed client again. Skipped today; re-enable once upstream
-// fixes rewriteVectorQuery to emit vecf32(...) around the vector parameter.
-func TestGeneratedClient_VectorQuery_KnownBug(t *testing.T) {
-	t.Skip("go-ormql FalkorDB driver does not wrap the vector param in " +
-		"vecf32(...) when rewriting @vector queries; Stage 1 kNN uses " +
-		"Client.Raw() instead. Remove this skip when upstream ships a fix.")
+// TestNestedConnect_CreatesStubForMissingTarget pins a known caveat of the
+// fork's nested-connect template: because `FOREACH` can't MATCH, the
+// template uses `MERGE (target:<Label> {id: ...})` to resolve the target
+// node. If the id doesn't refer to an existing node, MERGE creates a bare
+// stub with only the id property set (no name, no other fields).
+//
+// Our loader never hits this because parents always pre-exist by the time
+// their children reference them. But if a future caller (e.g. an HTTP
+// write endpoint) ever exposes `connect` to untrusted input, a bad id
+// would silently create a garbage node — at that point the caller is
+// responsible for validating ids before the typed mutation runs, or
+// switching to raw-Cypher MATCH semantics.
+func TestNestedConnect_CreatesStubForMissingTarget(t *testing.T) {
+	client := StartFalkorContainer(t)
+	ctx := context.Background()
+	if err := client.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Create a Book with a connect pointing at a Volume that DOESN'T exist.
+	_, err := client.GraphQL().Execute(ctx, `
+		mutation ($input: [BookCreateInput!]!) {
+		  createBooks(input: $input) { books { id } }
+		}`, map[string]any{
+		"input": []any{map[string]any{
+			"id":      "book/orphan",
+			"name":    "Orphan Book",
+			"slug":    "orphan",
+			"urlPath": "nowhere/orphan",
+			"volume":  map[string]any{"connect": []any{map[string]any{"where": map[string]any{"id": "vol/does-not-exist"}}}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("createBooks: %v", err)
+	}
+
+	// The FOREACH+MERGE template has materialised a stub Volume.
+	res, err := client.Raw().Query(
+		`MATCH (v:Volume {id: 'vol/does-not-exist'}) RETURN v.id AS id, v.name AS name, v.abbreviation AS abbr`,
+		nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("introspect stub: %v", err)
+	}
+	if !res.Next() {
+		t.Fatal("expected a stub Volume for the missing connect target; none was created " +
+			"— the template semantics have drifted, investigate before ignoring this")
+	}
+	rec := res.Record()
+	id, _ := rec.Get("id")
+	name, _ := rec.Get("name")
+	abbr, _ := rec.Get("abbr")
+	if id != "vol/does-not-exist" {
+		t.Errorf("stub id = %v, want 'vol/does-not-exist'", id)
+	}
+	// The stub has NO other properties — a real Volume created via Phase 1
+	// would have name + abbreviation set.
+	if name != nil || abbr != nil {
+		t.Errorf("stub unexpectedly carries other properties (name=%v, abbr=%v) — "+
+			"MERGE may have matched a real node instead of creating a stub", name, abbr)
+	}
+
+	// The CONTAINS edge still gets created between the stub and the Book,
+	// so from the graph's perspective the connection is real. This is the
+	// reason stub creation is a correctness hazard in user-facing contexts
+	// and not just a debug annoyance.
+	res, err = client.Raw().Query(
+		`MATCH (:Volume {id: 'vol/does-not-exist'})-[:CONTAINS]->(:Book {id: 'book/orphan'})
+		 RETURN count(*) AS n`,
+		nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("edge count: %v", err)
+	}
+	if !res.Next() {
+		t.Fatal("edge count query returned no rows")
+	}
+	n, _ := res.Record().GetByIndex(0)
+	if n.(int64) != 1 {
+		t.Errorf("expected 1 CONTAINS edge between stub and Book, got %v", n)
+	}
 }
 
 // directionalVec builds a `dim`-length vector that is `magnitude` along each

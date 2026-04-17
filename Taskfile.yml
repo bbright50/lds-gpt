@@ -107,25 +107,34 @@ tasks:
     silent: true
 
   load:
-    desc: Load all scraped data into the SQLite database (phases 1-5)
+    desc: Load all scraped data into FalkorDB (phases 1-5; no embeddings)
     cmds:
-      - go run ./cmd/dataloader/
+      - dotenvx run -- go run ./cmd/dataloader/
 
   embed:
-    desc: Generate embeddings for all entities (phase 6 only, existing DB)
+    desc: Generate embeddings for all entities via Ollama (phase 6 only, existing graph)
     cmds:
-      - go run ./cmd/dataloader/ --embed-only
+      - dotenvx run -- go run ./cmd/dataloader/ --embed-only
 
   load-and-embed:
-    desc: Load all scraped data + generate embeddings (phases 1-6)
+    desc: Load all scraped data + generate embeddings via Ollama (phases 1-6)
     cmds:
-      - go run ./cmd/dataloader/ --embed
+      - dotenvx run -- go run ./cmd/dataloader/ --embed
+
+  app:
+    desc: Run the CLI entry point (hardcoded contextual search)
+    cmds:
+      - dotenvx run -- go run ./cmd/app/
 
   generate:
     desc: Regenerate the go-ormql FalkorDB client from internal/falkor/schema.graphql
     cmds:
+      # Install gormql from the local fork (../go-ormql) so generator-side
+      # patches (optional id in CreateInput, etc.) apply. The replace
+      # directive in go.mod already points runtime-side patches at the fork.
+      - go build -o $(go env GOPATH)/bin/gormql ../go-ormql/cmd/gormql
       - rm -rf internal/falkor/generated
-      - gormql generate --schema internal/falkor/schema.graphql --output internal/falkor/generated --package generated --target falkordb
+      - $(go env GOPATH)/bin/gormql generate --schema internal/falkor/schema.graphql --output internal/falkor/generated --package generated --target falkordb
 
   scrape:all:
     desc: Scrape all standard works (1584 chapters)

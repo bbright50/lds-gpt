@@ -31,7 +31,7 @@ type crossRefRow struct {
 	endID                         string // optional; empty means "no end verse"
 }
 type tgRefRow struct {
-	srcID, tgtID, marker string
+	srcID, tgtID, marker, topic, refText string
 }
 type bdRefRow struct {
 	srcID, tgtID, marker string
@@ -155,7 +155,7 @@ func (l *Loader) collectChapterFootnotes(
 					*crossRefs = append(*crossRefs, r)
 				}
 			case "tg":
-				for _, r := range l.parseTGRefRows(fn.Text, verseID, fullMarker, tgMap, seenTG) {
+				for _, r := range l.parseTGRefRows(fn.Text, verseID, fullMarker, fn.ReferenceText, tgMap, seenTG) {
 					*tgRefs = append(*tgRefs, r)
 				}
 			case "bd":
@@ -212,7 +212,7 @@ func (l *Loader) parseCrossRefRows(
 }
 
 func (l *Loader) parseTGRefRows(
-	text, verseID, marker string,
+	text, verseID, marker, referenceText string,
 	tgMap map[string]string,
 	seen map[[2]string]bool,
 ) []tgRefRow {
@@ -228,7 +228,7 @@ func (l *Loader) parseTGRefRows(
 			continue
 		}
 		seen[pair] = true
-		rows = append(rows, tgRefRow{srcID: verseID, tgtID: tgID, marker: marker})
+		rows = append(rows, tgRefRow{srcID: verseID, tgtID: tgID, marker: marker, topic: topic, refText: referenceText})
 	}
 	return rows
 }
@@ -300,7 +300,7 @@ func (l *Loader) writeCrossRefs(ctx context.Context, rows []crossRefRow) error {
 		batch := make([]interface{}, 0, end-i)
 		for _, r := range rows[i:end] {
 			batch = append(batch, map[string]interface{}{
-				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker, "refText": r.refText,
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker, "refText": r.refText, "endID": r.endID,
 			})
 		}
 		if _, err := l.fc.Raw().Query(
@@ -310,7 +310,8 @@ func (l *Loader) writeCrossRefs(ctx context.Context, rows []crossRefRow) error {
 			 CREATE (s)-[:CROSS_REF {
 			   category: 'cross-ref',
 			   footnoteMarker: r.marker,
-			   referenceText: r.refText
+			   referenceText: r.refText,
+			   targetEndVerseId: r.endID
 			 }]->(t)`,
 			map[string]interface{}{"rows": batch}, nil,
 		); err != nil {
@@ -330,14 +331,18 @@ func (l *Loader) writeTGFootnotes(ctx context.Context, rows []tgRefRow) error {
 		batch := make([]interface{}, 0, end-i)
 		for _, r := range rows[i:end] {
 			batch = append(batch, map[string]interface{}{
-				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker,
+				"src": r.srcID, "tgt": r.tgtID, "marker": r.marker, "topic": r.topic, "refText": r.refText,
 			})
 		}
 		if _, err := l.fc.Raw().Query(
 			`UNWIND $rows AS r
 			 MATCH (v:Verse {id: r.src})
 			 MATCH (t:TopicalGuideEntry {id: r.tgt})
-			 CREATE (v)-[:TG_FOOTNOTE {footnoteMarker: r.marker}]->(t)`,
+			 CREATE (v)-[:TG_FOOTNOTE {
+			   footnoteMarker: r.marker,
+			   tgTopicText: r.topic,
+			   referenceText: r.refText
+			 }]->(t)`,
 			map[string]interface{}{"rows": batch}, nil,
 		); err != nil {
 			return fmt.Errorf("creating TG footnotes: %w", err)

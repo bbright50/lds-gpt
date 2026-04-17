@@ -30,7 +30,7 @@ type tgVerseRefRow struct {
 	tgID, verseID, phrase string
 }
 type bdVerseRefRow struct {
-	bdID, verseID string
+	bdID, verseID, endID string
 }
 type idxVerseRefRow struct {
 	idxID, verseID, phrase string
@@ -173,7 +173,13 @@ func (l *Loader) loadBDRefs(
 					continue
 				}
 				seen[pair] = true
-				rows = append(rows, bdVerseRefRow{bdID: bdID, verseID: verseID})
+				var endID string
+				if ref.EndVerse > 0 {
+					if id, ok := verseIndex.Get(ref.Volume, ref.Slug, ref.Chapter, ref.EndVerse); ok {
+						endID = id
+					}
+				}
+				rows = append(rows, bdVerseRefRow{bdID: bdID, verseID: verseID, endID: endID})
 			}
 			for _, e := range result.Errors {
 				l.stats.Warn(fmt.Sprintf("BD verse ref parse error (from %q): %s", entryName, e))
@@ -373,13 +379,13 @@ func (l *Loader) writeBDVerseRefs(ctx context.Context, rows []bdVerseRefRow) err
 		}
 		batch := make([]interface{}, 0, end-i)
 		for _, r := range rows[i:end] {
-			batch = append(batch, map[string]interface{}{"bd": r.bdID, "v": r.verseID})
+			batch = append(batch, map[string]interface{}{"bd": r.bdID, "v": r.verseID, "endID": r.endID})
 		}
 		if _, err := l.fc.Raw().Query(
 			`UNWIND $rows AS r
 			 MATCH (b:BibleDictEntry {id: r.bd})
 			 MATCH (v:Verse {id: r.v})
-			 CREATE (b)-[:BD_VERSE_REF]->(v)`,
+			 CREATE (b)-[:BD_VERSE_REF {targetEndVerseId: r.endID}]->(v)`,
 			map[string]interface{}{"rows": batch}, nil,
 		); err != nil {
 			return fmt.Errorf("creating BD verse refs: %w", err)

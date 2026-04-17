@@ -12,13 +12,17 @@ import (
 )
 
 // Phase 2 — create TopicalGuideEntry / BibleDictEntry / IndexEntry /
-// JSTPassage nodes from the four study-help JSON files. Returns name → node-ID
-// maps (used by Phases 3–4 to connect verses) and a JSTIndex keyed by
-// (bookSlug, chapter). Writes go through the raw FalkorDB handle because
-// each of these node types has a required @vector `embedding` field that
-// Phase 6 backfills via `SET n.embedding = vecf32(...)`.
-
-const studyHelpBatchSize = 500
+// JSTPassage nodes from the four study-help JSON files. Returns name →
+// id maps (used by Phases 3–4 to connect verses) and a JSTIndex keyed
+// by (bookSlug, chapter).
+//
+// Writes flow through the typed go-ormql client; auto-chunking handles the
+// per-batch loop we used to write by hand. Every @vector field gets a
+// fractional-zeros placeholder — the spike
+// TestSpike_VectorIndexOnPlainList_VsVecf32 proved FalkorDB's vector index is
+// strict (ignores plain lists), so these placeholders don't pollute kNN.
+// Phase 6 upgrades them to real vectors via typed updateXxx (fork-patched to
+// wrap the @vector SET value in vecf32).
 
 func (l *Loader) loadStudyHelps(ctx context.Context) (
 	tgMap, bdMap, idxMap map[string]string,
@@ -54,33 +58,28 @@ func (l *Loader) loadTopicalGuide(ctx context.Context) (map[string]string, error
 		return map[string]string{}, err
 	}
 
-	names := make([]string, 0, len(tgData))
+	tgMap := make(map[string]string, len(tgData))
+	rows := make([]any, 0, len(tgData))
 	for name := range tgData {
-		names = append(names, name)
+		id := tgNodeID(name)
+		tgMap[name] = id
+		rows = append(rows, map[string]any{
+			"id": id,
+			"name":       name,
+			"embedding":  placeholderEmbedding(),
+		})
 	}
-
-	tgMap := make(map[string]string, len(names))
-	for i := 0; i < len(names); i += studyHelpBatchSize {
-		end := i + studyHelpBatchSize
-		if end > len(names) {
-			end = len(names)
+	if len(rows) > 0 {
+		if _, err := l.fc.GraphQL().Execute(ctx, `
+			mutation ($input: [TopicalGuideEntryCreateInput!]!) {
+			  createTopicalGuideEntries(input: $input) {
+			    topicalGuideEntries { id }
+			  }
+			}`, map[string]any{"input": rows}); err != nil {
+			return nil, fmt.Errorf("createTopicalGuideEntries: %w", err)
 		}
-		rows := make([]interface{}, 0, end-i)
-		for _, name := range names[i:end] {
-			id := tgNodeID(name)
-			tgMap[name] = id
-			rows = append(rows, map[string]interface{}{"id": id, "name": name})
-		}
-		if _, err := l.fc.Raw().Query(
-			`UNWIND $rows AS r
-			 CREATE (:TopicalGuideEntry {id: r.id, name: r.name})`,
-			map[string]interface{}{"rows": rows}, nil,
-		); err != nil {
-			return nil, fmt.Errorf("bulk creating TG entries: %w", err)
-		}
-		l.stats.TGEntries += end - i
 	}
-
+	l.stats.TGEntries += len(rows)
 	l.logger.Info("loaded topical guide entries", "count", l.stats.TGEntries)
 	return tgMap, nil
 }
@@ -91,34 +90,29 @@ func (l *Loader) loadBibleDictionary(ctx context.Context) (map[string]string, er
 		return map[string]string{}, err
 	}
 
-	type item struct{ name, text string }
-	items := make([]item, 0, len(bdData))
+	bdMap := make(map[string]string, len(bdData))
+	rows := make([]any, 0, len(bdData))
 	for name, entry := range bdData {
-		items = append(items, item{name: name, text: entry.Text})
+		id := bdNodeID(name)
+		bdMap[name] = id
+		rows = append(rows, map[string]any{
+			"id": id,
+			"name":       name,
+			"text":       entry.Text,
+			"embedding":  placeholderEmbedding(),
+		})
 	}
-
-	bdMap := make(map[string]string, len(items))
-	for i := 0; i < len(items); i += studyHelpBatchSize {
-		end := i + studyHelpBatchSize
-		if end > len(items) {
-			end = len(items)
+	if len(rows) > 0 {
+		if _, err := l.fc.GraphQL().Execute(ctx, `
+			mutation ($input: [BibleDictEntryCreateInput!]!) {
+			  createBibleDictEntries(input: $input) {
+			    bibleDictEntries { id }
+			  }
+			}`, map[string]any{"input": rows}); err != nil {
+			return nil, fmt.Errorf("createBibleDictEntries: %w", err)
 		}
-		rows := make([]interface{}, 0, end-i)
-		for _, it := range items[i:end] {
-			id := bdNodeID(it.name)
-			bdMap[it.name] = id
-			rows = append(rows, map[string]interface{}{"id": id, "name": it.name, "text": it.text})
-		}
-		if _, err := l.fc.Raw().Query(
-			`UNWIND $rows AS r
-			 CREATE (:BibleDictEntry {id: r.id, name: r.name, text: r.text})`,
-			map[string]interface{}{"rows": rows}, nil,
-		); err != nil {
-			return nil, fmt.Errorf("bulk creating BD entries: %w", err)
-		}
-		l.stats.BDEntries += end - i
 	}
-
+	l.stats.BDEntries += len(rows)
 	l.logger.Info("loaded bible dictionary entries", "count", l.stats.BDEntries)
 	return bdMap, nil
 }
@@ -129,33 +123,28 @@ func (l *Loader) loadTripleCombIndex(ctx context.Context) (map[string]string, er
 		return map[string]string{}, err
 	}
 
-	names := make([]string, 0, len(idxData))
+	idxMap := make(map[string]string, len(idxData))
+	rows := make([]any, 0, len(idxData))
 	for name := range idxData {
-		names = append(names, name)
+		id := idxNodeID(name)
+		idxMap[name] = id
+		rows = append(rows, map[string]any{
+			"id": id,
+			"name":       name,
+			"embedding":  placeholderEmbedding(),
+		})
 	}
-
-	idxMap := make(map[string]string, len(names))
-	for i := 0; i < len(names); i += studyHelpBatchSize {
-		end := i + studyHelpBatchSize
-		if end > len(names) {
-			end = len(names)
+	if len(rows) > 0 {
+		if _, err := l.fc.GraphQL().Execute(ctx, `
+			mutation ($input: [IndexEntryCreateInput!]!) {
+			  createIndexEntries(input: $input) {
+			    indexEntries { id }
+			  }
+			}`, map[string]any{"input": rows}); err != nil {
+			return nil, fmt.Errorf("createIndexEntries: %w", err)
 		}
-		rows := make([]interface{}, 0, end-i)
-		for _, name := range names[i:end] {
-			id := idxNodeID(name)
-			idxMap[name] = id
-			rows = append(rows, map[string]interface{}{"id": id, "name": name})
-		}
-		if _, err := l.fc.Raw().Query(
-			`UNWIND $rows AS r
-			 CREATE (:IndexEntry {id: r.id, name: r.name})`,
-			map[string]interface{}{"rows": rows}, nil,
-		); err != nil {
-			return nil, fmt.Errorf("bulk creating IDX entries: %w", err)
-		}
-		l.stats.IDXEntries += end - i
 	}
-
+	l.stats.IDXEntries += len(rows)
 	l.logger.Info("loaded index entries", "count", l.stats.IDXEntries)
 	return idxMap, nil
 }
@@ -167,11 +156,7 @@ func (l *Loader) loadJST(ctx context.Context) (JSTIndex, error) {
 		return jstIndex, err
 	}
 
-	type passageRow struct {
-		id, book, chapter, comprises, compareRef, summary, text string
-	}
-	var rows []passageRow
-
+	rows := make([]any, 0, 128)
 	for _, ch := range jstData {
 		for _, entry := range ch.Entries {
 			var parts []string
@@ -199,14 +184,15 @@ func (l *Loader) loadJST(ctx context.Context) (JSTIndex, error) {
 
 			bookSlug := l.jstBookToSlug(ch.Book)
 			id := jstNodeID(bookSlug, ch.Chapter, comprises)
-			rows = append(rows, passageRow{
-				id:         id,
-				book:       ch.Book,
-				chapter:    ch.Chapter,
-				comprises:  comprises,
-				compareRef: entry.Compare,
-				summary:    entry.Summary,
-				text:       fullText,
+			rows = append(rows, map[string]any{
+				"id": id,
+				"book":       ch.Book,
+				"chapter":    ch.Chapter,
+				"comprises":  comprises,
+				"compareRef": entry.Compare,
+				"summary":    entry.Summary,
+				"text":       fullText,
+				"embedding":  placeholderEmbedding(),
 			})
 
 			if bookSlug != "" {
@@ -215,36 +201,17 @@ func (l *Loader) loadJST(ctx context.Context) (JSTIndex, error) {
 		}
 	}
 
-	for i := 0; i < len(rows); i += studyHelpBatchSize {
-		end := i + studyHelpBatchSize
-		if end > len(rows) {
-			end = len(rows)
+	if len(rows) > 0 {
+		if _, err := l.fc.GraphQL().Execute(ctx, `
+			mutation ($input: [JSTPassageCreateInput!]!) {
+			  createJSTPassages(input: $input) {
+			    jSTPassages { id }
+			  }
+			}`, map[string]any{"input": rows}); err != nil {
+			return jstIndex, fmt.Errorf("createJSTPassages: %w", err)
 		}
-		batch := make([]interface{}, 0, end-i)
-		for _, r := range rows[i:end] {
-			batch = append(batch, map[string]interface{}{
-				"id":         r.id,
-				"book":       r.book,
-				"chapter":    r.chapter,
-				"comprises":  r.comprises,
-				"compareRef": r.compareRef,
-				"summary":    r.summary,
-				"text":       r.text,
-			})
-		}
-		if _, err := l.fc.Raw().Query(
-			`UNWIND $rows AS r
-			 CREATE (:JSTPassage {
-			   id: r.id, book: r.book, chapter: r.chapter, comprises: r.comprises,
-			   compareRef: r.compareRef, summary: r.summary, text: r.text
-			 })`,
-			map[string]interface{}{"rows": batch}, nil,
-		); err != nil {
-			return jstIndex, fmt.Errorf("bulk creating JST passages: %w", err)
-		}
-		l.stats.JSTPassages += end - i
 	}
-
+	l.stats.JSTPassages += len(rows)
 	l.logger.Info("loaded JST passages", "count", l.stats.JSTPassages)
 	return jstIndex, nil
 }
@@ -286,4 +253,19 @@ func bdNodeID(name string) string  { return "bd/" + name }
 func idxNodeID(name string) string { return "idx/" + name }
 func jstNodeID(bookSlug, chapter, comprises string) string {
 	return "jst/" + bookSlug + "/" + chapter + "/" + comprises
+}
+
+// placeholderEmbedding returns a 1024-length slice of small fractional
+// values as an []any (float64). Used wherever the schema's @vector field
+// requires a non-null value at create time but Phase 6 hasn't computed the
+// real embedding yet. Fractional values (0.0001) avoid falkordb-go's
+// ToString rendering as LIST<INTEGER> and, per spike, FalkorDB's vector
+// index ignores plain-list values — so the placeholder does not pollute
+// kNN until Phase 6 upgrades it via `SET n.<prop> = vecf32(...)`.
+func placeholderEmbedding() []any {
+	out := make([]any, 1024)
+	for i := range out {
+		out[i] = 0.0001
+	}
+	return out
 }

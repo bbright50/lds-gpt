@@ -79,7 +79,7 @@ func NewClient(cfg Config) (*Client, error) {
 		db:      db,
 		graph:   db.SelectGraph(cfg.GraphName),
 		drv:     drv,
-		gclient: generated.NewClient(drv),
+		gclient: generated.NewClient(drv, ormql.WithBatchSize(500)),
 	}, nil
 }
 

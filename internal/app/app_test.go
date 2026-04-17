@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	"lds-gpt/internal/bedrockembedding/mocks"
+	"lds-gpt/internal/embedding/mocks"
 	"lds-gpt/internal/falkor"
 )
 
