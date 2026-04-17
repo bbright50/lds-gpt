@@ -40,6 +40,21 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
 }
 
+// EmbedBatch mocks base method.
+func (m *MockClient) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EmbedBatch", ctx, texts)
+	ret0, _ := ret[0].([][]float64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EmbedBatch indicates an expected call of EmbedBatch.
+func (mr *MockClientMockRecorder) EmbedBatch(ctx, texts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmbedBatch", reflect.TypeOf((*MockClient)(nil).EmbedBatch), ctx, texts)
+}
+
 // EmbedText mocks base method.
 func (m *MockClient) EmbedText(ctx context.Context, text string) ([]float64, error) {
 	m.ctrl.T.Helper()

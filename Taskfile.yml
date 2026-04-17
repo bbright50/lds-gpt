@@ -106,6 +106,12 @@ tasks:
       - go run ./cmd/scrapers/jst/
     silent: true
 
+  scrape:conf:
+    desc: Scrape every general-conference talk (1971-04 through current, ~3,300 talks)
+    cmds:
+      - go run ./cmd/scrapers/conference/
+    silent: true
+
   load:
     desc: Load all scraped data into FalkorDB (phases 1-5; no embeddings)
     cmds:

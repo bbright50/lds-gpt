@@ -13,15 +13,18 @@ import (
 // Loader orchestrates the ETL pipeline that populates the scripture
 // knowledge graph from scraped JSON data into a FalkorDB property graph.
 type Loader struct {
-	fc          *falkor.Client
-	dataDir     string
-	stats       LoadStats
-	abbrevs     map[string]BookInfo
-	slugMap     map[string]string
-	bookNames   map[string]BookInfo
-	refParser   RefParser
-	logger      *slog.Logger
-	embedClient embedding.Client
+	fc               *falkor.Client
+	dataDir          string
+	stats            LoadStats
+	abbrevs          map[string]BookInfo
+	slugMap          map[string]string
+	bookNames        map[string]BookInfo
+	refParser        RefParser
+	logger           *slog.Logger
+	embedClient      embedding.Client
+	embedBatchSize   int
+	embedConcurrency int
+	embedMaxTextLen  int
 }
 
 // LoaderOption configures optional Loader dependencies.
@@ -30,6 +33,25 @@ type LoaderOption func(*Loader)
 // WithEmbedClient attaches an embedding client to enable Phase 6.
 func WithEmbedClient(c embedding.Client) LoaderOption {
 	return func(l *Loader) { l.embedClient = c }
+}
+
+// WithEmbedBatchSize tunes how many chunks Phase 6 sends per /api/embed
+// request. Zero or negative falls back to the default (32).
+func WithEmbedBatchSize(n int) LoaderOption {
+	return func(l *Loader) { l.embedBatchSize = n }
+}
+
+// WithEmbedConcurrency caps how many /api/embed requests fly at once. Zero
+// or negative falls back to the default (1 — matches stock Ollama, which
+// serialises per model unless OLLAMA_NUM_PARALLEL is raised).
+func WithEmbedConcurrency(n int) LoaderOption {
+	return func(l *Loader) { l.embedConcurrency = n }
+}
+
+// WithEmbedMaxTextLen overrides how many characters each chunk is truncated
+// to before hitting the embed model. Zero or negative → default (2000).
+func WithEmbedMaxTextLen(n int) LoaderOption {
+	return func(l *Loader) { l.embedMaxTextLen = n }
 }
 
 // New creates a new Loader.

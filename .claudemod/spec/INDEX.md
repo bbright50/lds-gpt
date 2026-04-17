@@ -125,6 +125,7 @@ Required env vars (loaded from `.env` or the process environment):
 - [Database & Schema](./database/database.md) — FalkorDB client, GraphQL schema, vector indexes
 - [Embeddings](./embeddings/embeddings.md) — Bedrock Titan client and float32 encoding
 - [Contextual Search](./search/search.md) — Parallel kNN + graph expansion + ranking
+- [Agent (ReAct)](./agent/agent.md) — LLM-driven Cypher generation with multi-turn chat context (design stage)
 - [App CLI](./app/app.md) — Wiring of client + embedding + search
 - [Frontend](./frontend/frontend.md) — React UI (awaiting HTTP backend)
 

@@ -19,9 +19,10 @@ import (
 // present; EmbedOnly() errors out up-front.
 
 const (
-	embedConcurrency = 8
-	maxTextLen       = 25000 // Titan v2 context-window safety margin
-	maxPhrases       = 20    // cap per TG/IDX composition
+	maxPhrases              = 20   // cap per TG/IDX composition
+	defaultEmbedBatchSize   = 32   // used when Loader.embedBatchSize is unset
+	defaultEmbedConcurrency = 1    // stock Ollama serialises per model
+	defaultEmbedMaxTextLen  = 2000 // safe for mxbai-embed-large (512 tokens)
 )
 
 type embedTarget struct {
@@ -60,10 +61,28 @@ func (l *Loader) embedAll(ctx context.Context) error {
 
 // --- Per-entity-type embedders ---
 
+// needsEmbedWhere builds a WHERE fragment that matches "not yet embedded".
+//
+// At node-create time every @vector slot gets populated with a plain LIST
+// placeholder (the schema forces `[Float!]!` non-null). Phase 6 upgrades
+// that LIST to a VECTORF32 via `SET n.<prop> = vecf32(...)`. So the ground
+// truth is: LIST ⇒ still needs embedding; VECTORF32 ⇒ already done.
+//
+// `typeOf(x)[0] = …` would error on VECTORF32 (`Type mismatch: expected
+// Map, Node, Edge, List, or Null but was Vectorf32`), which bricked `task
+// embed` reruns. typeOf short-circuits that cleanly. The `IS NULL` arm
+// keeps unit-test seeds that create nodes without an embedding property
+// working (the real loader never takes that branch because the non-null
+// schema forces the placeholder).
+func needsEmbedWhere(alias, prop string) string {
+	return fmt.Sprintf("(%[1]s.%[2]s IS NULL OR typeOf(%[1]s.%[2]s) = 'List')", alias, prop)
+}
+
 func (l *Loader) embedVerseGroups(ctx context.Context) (int, error) {
 	targets, err := l.fetchTargets(ctx,
-		`MATCH (g:VerseGroup) WHERE g.embedding IS NULL AND g.text IS NOT NULL AND g.text <> ''
-		 RETURN g.id AS id, g.text AS text`)
+		fmt.Sprintf(`MATCH (g:VerseGroup)
+		 WHERE %s AND g.text IS NOT NULL AND g.text <> ''
+		 RETURN g.id AS id, g.text AS text`, needsEmbedWhere("g", "embedding")))
 	if err != nil {
 		return 0, err
 	}
@@ -72,8 +91,9 @@ func (l *Loader) embedVerseGroups(ctx context.Context) (int, error) {
 
 func (l *Loader) embedChapters(ctx context.Context) (int, error) {
 	targets, err := l.fetchTargets(ctx,
-		`MATCH (c:Chapter) WHERE c.summaryEmbedding IS NULL AND c.summary IS NOT NULL AND c.summary <> ''
-		 RETURN c.id AS id, c.summary AS text`)
+		fmt.Sprintf(`MATCH (c:Chapter)
+		 WHERE %s AND c.summary IS NOT NULL AND c.summary <> ''
+		 RETURN c.id AS id, c.summary AS text`, needsEmbedWhere("c", "summaryEmbedding")))
 	if err != nil {
 		return 0, err
 	}
@@ -82,8 +102,9 @@ func (l *Loader) embedChapters(ctx context.Context) (int, error) {
 
 func (l *Loader) embedBDEntries(ctx context.Context) (int, error) {
 	targets, err := l.fetchTargets(ctx,
-		`MATCH (b:BibleDictEntry) WHERE b.embedding IS NULL AND b.text IS NOT NULL AND b.text <> ''
-		 RETURN b.id AS id, b.text AS text`)
+		fmt.Sprintf(`MATCH (b:BibleDictEntry)
+		 WHERE %s AND b.text IS NOT NULL AND b.text <> ''
+		 RETURN b.id AS id, b.text AS text`, needsEmbedWhere("b", "embedding")))
 	if err != nil {
 		return 0, err
 	}
@@ -93,11 +114,11 @@ func (l *Loader) embedBDEntries(ctx context.Context) (int, error) {
 func (l *Loader) embedJSTPassages(ctx context.Context) (int, error) {
 	// Prefer "summary + text" when summary is non-empty; otherwise just text.
 	targets, err := l.fetchTargets(ctx,
-		`MATCH (j:JSTPassage)
-		 WHERE j.embedding IS NULL AND j.text IS NOT NULL AND j.text <> ''
+		fmt.Sprintf(`MATCH (j:JSTPassage)
+		 WHERE %s AND j.text IS NOT NULL AND j.text <> ''
 		 RETURN j.id AS id,
 		        CASE WHEN j.summary IS NULL OR j.summary = '' THEN j.text
-		             ELSE j.summary + ' ' + j.text END AS text`)
+		             ELSE j.summary + ' ' + j.text END AS text`, needsEmbedWhere("j", "embedding")))
 	if err != nil {
 		return 0, err
 	}
@@ -126,11 +147,11 @@ func (l *Loader) embedNameWithPhrases(
 	counter *int,
 ) (int, error) {
 	query := fmt.Sprintf(
-		`MATCH (n:%s) WHERE n.%s IS NULL
+		`MATCH (n:%s) WHERE %s
 		 OPTIONAL MATCH (n)-[r:%s]->(:Verse) WHERE r.phrase IS NOT NULL AND r.phrase <> ''
 		 WITH n, collect(r.phrase) AS phrases
 		 RETURN n.id AS id, n.name AS name, phrases`,
-		label, embeddingProp, relType,
+		label, needsEmbedWhere("n", embeddingProp), relType,
 	)
 	res, err := l.fc.Raw().Query(query, nil, nil)
 	if err != nil {
@@ -183,10 +204,12 @@ func (l *Loader) fetchTargets(ctx context.Context, query string) ([]embedTarget,
 	return out, nil
 }
 
-// runEmbeddingWorkers embeds every target in parallel (bounded by
-// embedConcurrency) and issues a `SET n.<prop> = vecf32($vec)` per result.
-// Per-row failures are logged as warnings — one Bedrock failure does not
-// abort the whole phase, matching the original LibSQL behavior.
+// runEmbeddingWorkers embeds every target in batches through the embedding
+// client's /api/embed endpoint, then issues a `SET n.<prop> = vecf32($vec)`
+// per result. Batch size comes from WithEmbedBatchSize; up to
+// embedConcurrency batches are in flight at once. Per-batch failures are
+// logged as warnings and don't abort the phase — matches the original
+// LibSQL behaviour where one flaky call couldn't sink a long load.
 func (l *Loader) runEmbeddingWorkers(
 	ctx context.Context,
 	targets []embedTarget,
@@ -196,24 +219,69 @@ func (l *Loader) runEmbeddingWorkers(
 	if len(targets) == 0 {
 		return 0, nil
 	}
+	batchSize := l.embedBatchSize
+	if batchSize <= 0 {
+		batchSize = defaultEmbedBatchSize
+	}
+	concurrency := l.embedConcurrency
+	if concurrency <= 0 {
+		concurrency = defaultEmbedConcurrency
+	}
+	maxTextLen := l.embedMaxTextLen
+	if maxTextLen <= 0 {
+		maxTextLen = defaultEmbedMaxTextLen
+	}
+
 	var written int64
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(embedConcurrency)
+	g.SetLimit(concurrency)
 
-	for _, tgt := range targets {
-		tgt := tgt
+	for i := 0; i < len(targets); i += batchSize {
+		end := i + batchSize
+		if end > len(targets) {
+			end = len(targets)
+		}
+		batch := targets[i:end]
 		g.Go(func() error {
-			text := truncate(tgt.text, maxTextLen)
-			embedding, err := l.embedClient.EmbedText(gCtx, text)
+			texts := make([]string, len(batch))
+			for j, tgt := range batch {
+				texts[j] = truncate(tgt.text, maxTextLen)
+			}
+			vectors, err := l.embedClient.EmbedBatch(gCtx, texts)
 			if err != nil {
-				l.stats.Warn(fmt.Sprintf("embedding %s %s: %v", label, tgt.id, err))
+				// Ollama rejects an entire batch with 400 when any single item
+				// exceeds the context window, and transient network errors
+				// similarly take the whole batch down. Fall back to per-item
+				// calls so one bad chunk doesn't cost us 63 healthy siblings.
+				l.stats.Warn(fmt.Sprintf("embedding batch of %d %s failed, retrying per-item: %v", len(batch), label, err))
+				for j, tgt := range batch {
+					vec, itemErr := l.embedClient.EmbedText(gCtx, texts[j])
+					if itemErr != nil {
+						l.stats.Warn(fmt.Sprintf("embedding %s %s: %v", label, tgt.id, itemErr))
+						continue
+					}
+					if writeErr := l.writeEmbedding(gCtx, label, tgt.id, embeddingProp, vec); writeErr != nil {
+						l.stats.Warn(fmt.Sprintf("writing embedding for %s %s: %v", label, tgt.id, writeErr))
+						continue
+					}
+					atomic.AddInt64(&written, 1)
+				}
 				return nil
 			}
-			if err := l.writeEmbedding(gCtx, label, tgt.id, embeddingProp, embedding); err != nil {
-				l.stats.Warn(fmt.Sprintf("writing embedding for %s %s: %v", label, tgt.id, err))
+			if len(vectors) != len(batch) {
+				l.stats.Warn(fmt.Sprintf(
+					"embedding batch of %d %s: got %d vectors back, skipping batch",
+					len(batch), label, len(vectors),
+				))
 				return nil
 			}
-			atomic.AddInt64(&written, 1)
+			for j, tgt := range batch {
+				if err := l.writeEmbedding(gCtx, label, tgt.id, embeddingProp, vectors[j]); err != nil {
+					l.stats.Warn(fmt.Sprintf("writing embedding for %s %s: %v", label, tgt.id, err))
+					continue
+				}
+				atomic.AddInt64(&written, 1)
+			}
 			return nil
 		})
 	}

@@ -72,6 +72,15 @@ func main() {
 		}
 		embedClient := embedding.NewOllamaClient(cfg.OllamaURL, cfg.OllamaModel)
 		opts = append(opts, dataloader.WithEmbedClient(embedClient))
+		if cfg.EmbedBatchSize > 0 {
+			opts = append(opts, dataloader.WithEmbedBatchSize(cfg.EmbedBatchSize))
+		}
+		if cfg.EmbedConcurrency > 0 {
+			opts = append(opts, dataloader.WithEmbedConcurrency(cfg.EmbedConcurrency))
+		}
+		if cfg.EmbedMaxTextLen > 0 {
+			opts = append(opts, dataloader.WithEmbedMaxTextLen(cfg.EmbedMaxTextLen))
+		}
 	}
 
 	loader := dataloader.New(client, cfg.DataDir, logger, opts...)

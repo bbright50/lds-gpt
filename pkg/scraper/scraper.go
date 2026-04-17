@@ -113,7 +113,10 @@ func cachePath(rawURL, cacheDir string) (string, error) {
 		return "", fmt.Errorf("parse url: %w", err)
 	}
 
-	const prefix = "/study/scriptures/"
+	// Accept any `/study/...` path — the subdirectory segment (scriptures,
+	// general-conference, etc.) becomes part of the cached layout, so two
+	// content families never collide on disk.
+	const prefix = "/study/"
 	if !strings.HasPrefix(parsed.Path, prefix) {
 		return "", fmt.Errorf("unexpected url path: %s", parsed.Path)
 	}

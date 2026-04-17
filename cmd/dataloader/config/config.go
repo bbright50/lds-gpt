@@ -34,6 +34,35 @@ type Config struct {
 	OllamaURL   string `mapstructure:"OLLAMA_URL"`
 	OllamaModel string `mapstructure:"OLLAMA_MODEL"`
 
+	// Chat/generation model on the same Ollama server (e.g. "gemma3:27b",
+	// "llama3:70b"). Reuses OLLAMA_URL — the only reason this is a separate
+	// knob is that embedding and generation want different model sizes and
+	// tunings. Empty means "don't construct a chat client" (runtime app
+	// paths that need one check this and error up-front).
+	OllamaChatModel string `mapstructure:"OLLAMA_CHAT_MODEL"`
+
+	// Number of chunks per /api/embed request in Phase 6. Larger = fewer HTTP
+	// round-trips + better GPU batching on the server, but each request uses
+	// more memory and takes longer (longer timeouts may be needed). Defaults
+	// to 32 when unset — tune up for a GPU-backed Ollama, down for CPU.
+	EmbedBatchSize int `mapstructure:"EMBED_BATCH_SIZE"`
+
+	// Number of /api/embed requests in flight to Ollama at once. Default is
+	// 1 (fully serial) because stock Ollama servers serialise requests per
+	// model unless OLLAMA_NUM_PARALLEL is raised; firing more concurrency
+	// than the server supports only queues up on the server side. Bump to
+	// OLLAMA_NUM_PARALLEL's value on GPU-backed multi-slot setups.
+	EmbedConcurrency int `mapstructure:"EMBED_CONCURRENCY"`
+
+	// Maximum characters per chunk before truncation. Must fit inside the
+	// embed model's context window. Rough rule of thumb: window_tokens × 3.5
+	// — so for mxbai-embed-large (512 tokens) stay under ~1800; for a
+	// 2048-token model use ~6000. Defaults to 2000 when unset. Exceeding
+	// the model's window causes Ollama to reject the entire batch with 400,
+	// and until the per-item fallback kicks in you lose every sibling chunk
+	// in that batch.
+	EmbedMaxTextLen int `mapstructure:"EMBED_MAX_TEXT_LEN"`
+
 	// data directory containing scraped scripture JSON files
 	DataDir string `mapstructure:"DATA_DIR"`
 }

@@ -100,10 +100,68 @@ func (c *Client) GraphQL() *ormql.Client {
 	return c.gclient
 }
 
+// nodeLabels is the set of @node types from internal/falkor/schema.graphql
+// that use `id: ID!` as their lookup key. Every batched write in the
+// dataloader does MATCH (n:<Label> {id: $id}); without a property index on
+// (n.id) every MATCH is a full label scan — a 41k-verse graph then blows
+// past the driver read timeout after a couple hundred rows. The index
+// turns each lookup into O(1) and keeps batch times tens-of-ms flat.
+var nodeLabels = []string{
+	"Volume", "Book", "Chapter", "Verse", "VerseGroup",
+	"TopicalGuideEntry", "BibleDictEntry", "IndexEntry", "JSTPassage",
+}
+
 // Migrate idempotently creates every vector index declared in the GraphQL
-// schema. Safe to re-run — the generator emits `already indexed`-tolerant DDL.
+// schema plus a property index on id for every @node label, and lifts the
+// server-side RESULTSET_SIZE cap so bulk target queries (e.g. Phase 6's
+// "find every placeholder VerseGroup") don't get silently truncated at the
+// default 10000. Safe to re-run.
 func (c *Client) Migrate(ctx context.Context) error {
-	return generated.CreateIndexes(ctx, c.drv)
+	// RESULTSET_SIZE = -1 → unlimited. Without this a 13k-row MATCH against
+	// VerseGroup gets truncated to 10k and Phase 6 skips 25% of the nodes.
+	if err := c.db.ConfigSet("RESULTSET_SIZE", -1); err != nil {
+		return fmt.Errorf("falkor: raise RESULTSET_SIZE cap: %w", err)
+	}
+	if err := generated.CreateIndexes(ctx, c.drv); err != nil {
+		return err
+	}
+	for _, label := range nodeLabels {
+		q := fmt.Sprintf("CREATE INDEX FOR (n:%s) ON (n.id)", label)
+		if _, err := c.graph.Query(q, nil, nil); err != nil && !isAlreadyIndexedErr(err) {
+			return fmt.Errorf("falkor: create id index on %s: %w", label, err)
+		}
+	}
+	return nil
+}
+
+func isAlreadyIndexedErr(err error) bool {
+	return err != nil && (containsCI(err.Error(), "already indexed") || containsCI(err.Error(), "already exists"))
+}
+
+func containsCI(haystack, needle string) bool {
+	if len(needle) > len(haystack) {
+		return false
+	}
+	for i := 0; i <= len(haystack)-len(needle); i++ {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			hc, nc := haystack[i+j], needle[j]
+			if hc >= 'A' && hc <= 'Z' {
+				hc += 'a' - 'A'
+			}
+			if nc >= 'A' && nc <= 'Z' {
+				nc += 'a' - 'A'
+			}
+			if hc != nc {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) Close() error {

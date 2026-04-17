@@ -33,8 +33,8 @@ func WithHTTPTimeout(d time.Duration) OllamaOption {
 }
 
 type ollamaRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 type ollamaResponse struct {
@@ -68,14 +68,32 @@ func NewOllamaClient(baseURL, model string, opts ...OllamaOption) Client {
 	return c
 }
 
+// EmbedText embeds a single string via the shared batch code path. It goes
+// through the rate-limiter pool so concurrent callers (e.g. multiple HTTP
+// handlers in a future server) stay bounded without having to coordinate.
 func (c *ollamaClient) EmbedText(ctx context.Context, text string) ([]float64, error) {
 	return c.SubmitErr(func() ([]float64, error) {
-		return c.embed(ctx, text)
+		vecs, err := c.embed(ctx, []string{text})
+		if err != nil {
+			return nil, err
+		}
+		return vecs[0], nil
 	})
 }
 
-func (c *ollamaClient) embed(ctx context.Context, text string) ([]float64, error) {
-	body, err := json.Marshal(ollamaRequest{Model: c.model, Input: text})
+// EmbedBatch sends all texts in a single POST to /api/embed. Callers (today
+// only the Phase 6 dataloader) are responsible for bounding outer
+// concurrency — hence no rate-limiter pool wrap here: that lives on the
+// single-item path. Empty input short-circuits to avoid a pointless HTTP call.
+func (c *ollamaClient) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	return c.embed(ctx, texts)
+}
+
+func (c *ollamaClient) embed(ctx context.Context, texts []string) ([][]float64, error) {
+	body, err := json.Marshal(ollamaRequest{Model: c.model, Input: texts})
 	if err != nil {
 		return nil, fmt.Errorf("marshal embed request: %w", err)
 	}
@@ -100,8 +118,13 @@ func (c *ollamaClient) embed(ctx context.Context, text string) ([]float64, error
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode embed response: %w", err)
 	}
-	if len(out.Embeddings) == 0 || len(out.Embeddings[0]) == 0 {
-		return nil, fmt.Errorf("ollama embed: empty embeddings in response")
+	if len(out.Embeddings) != len(texts) {
+		return nil, fmt.Errorf("ollama embed: got %d embeddings for %d inputs", len(out.Embeddings), len(texts))
 	}
-	return out.Embeddings[0], nil
+	for i, v := range out.Embeddings {
+		if len(v) == 0 {
+			return nil, fmt.Errorf("ollama embed: empty embedding at index %d", i)
+		}
+	}
+	return out.Embeddings, nil
 }
