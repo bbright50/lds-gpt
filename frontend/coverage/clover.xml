@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage generated="1771642850372" clover="3.2.0">
+  <project timestamp="1771642850372" name="All files">
+    <metrics statements="92" coveredstatements="90" conditionals="53" coveredconditionals="45" methods="25" coveredmethods="25" elements="170" coveredelements="160" complexity="0" loc="92" ncloc="92" packages="5" files="12" classes="12"/>
+    <package name="src">
+      <metrics statements="26" coveredstatements="24" conditionals="8" coveredconditionals="4" methods="2" coveredmethods="2"/>
+      <file name="App.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/App.tsx">
+        <metrics statements="26" coveredstatements="24" conditionals="8" coveredconditionals="4" methods="2" coveredmethods="2"/>
+        <line num="12" count="18" type="stmt"/>
+        <line num="13" count="18" type="stmt"/>
+        <line num="14" count="18" type="stmt"/>
+        <line num="15" count="18" type="stmt"/>
+        <line num="16" count="18" type="stmt"/>
+        <line num="18" count="18" type="stmt"/>
+        <line num="19" count="7" type="stmt"/>
+        <line num="20" count="7" type="stmt"/>
+        <line num="21" count="7" type="stmt"/>
+        <line num="23" count="7" type="stmt"/>
+        <line num="24" count="7" type="stmt"/>
+        <line num="26" count="7" type="stmt"/>
+        <line num="27" count="7" type="stmt"/>
+        <line num="29" count="3" type="cond" truecount="1" falsecount="1"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="33" count="3" type="stmt"/>
+        <line num="34" count="3" type="stmt"/>
+        <line num="36" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="37" count="0" type="stmt"/>
+        <line num="40" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="42" count="1" type="stmt"/>
+        <line num="43" count="1" type="stmt"/>
+        <line num="45" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="46" count="4" type="stmt"/>
+        <line num="51" count="18" type="stmt"/>
+      </file>
+    </package>
+    <package name="src.api">
+      <metrics statements="17" coveredstatements="17" conditionals="6" coveredconditionals="6" methods="6" coveredmethods="6"/>
+      <file name="client.ts" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/api/client.ts">
+        <metrics statements="7" coveredstatements="7" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="4" count="8" type="stmt"/>
+        <line num="6" count="7" type="stmt"/>
+        <line num="7" count="7" type="stmt"/>
+        <line num="16" count="6" type="cond" truecount="2" falsecount="0"/>
+        <line num="17" count="1" type="stmt"/>
+        <line num="20" count="5" type="stmt"/>
+        <line num="21" count="5" type="stmt"/>
+      </file>
+      <file name="mockSearch.ts" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/api/mockSearch.ts">
+        <metrics statements="10" coveredstatements="10" conditionals="4" coveredconditionals="4" methods="4" coveredmethods="4"/>
+        <line num="4" count="1" type="stmt"/>
+        <line num="5" count="1" type="stmt"/>
+        <line num="8" count="13" type="stmt"/>
+        <line num="12" count="13" type="stmt"/>
+        <line num="14" count="13" type="stmt"/>
+        <line num="16" count="13" type="cond" truecount="2" falsecount="0"/>
+        <line num="18" count="13" type="cond" truecount="2" falsecount="0"/>
+        <line num="19" count="2" type="stmt"/>
+        <line num="22" count="11" type="stmt"/>
+        <line num="23" count="11" type="stmt"/>
+      </file>
+    </package>
+    <package name="src.components">
+      <metrics statements="43" coveredstatements="43" conditionals="39" coveredconditionals="35" methods="17" coveredmethods="17"/>
+      <file name="DistanceBadge.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/DistanceBadge.tsx">
+        <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+        <line num="6" count="46" type="stmt"/>
+        <line num="7" count="46" type="stmt"/>
+        <line num="11" count="46" type="stmt"/>
+        <line num="13" count="46" type="stmt"/>
+      </file>
+      <file name="EntityIcon.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/EntityIcon.tsx">
+        <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+        <line num="7" count="5" type="stmt"/>
+        <line num="18" count="48" type="stmt"/>
+      </file>
+      <file name="MetadataPanel.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/MetadataPanel.tsx">
+        <metrics statements="10" coveredstatements="10" conditionals="14" coveredconditionals="11" methods="4" coveredmethods="4"/>
+        <line num="7" count="5" type="stmt"/>
+        <line num="22" count="8" type="cond" truecount="3" falsecount="1"/>
+        <line num="23" count="8" type="cond" truecount="3" falsecount="1"/>
+        <line num="24" count="8" type="stmt"/>
+        <line num="28" count="7" type="stmt"/>
+        <line num="29" count="12" type="cond" truecount="2" falsecount="0"/>
+        <line num="32" count="7" type="cond" truecount="2" falsecount="0"/>
+        <line num="33" count="2" type="stmt"/>
+        <line num="36" count="5" type="stmt"/>
+        <line num="39" count="8" type="stmt"/>
+      </file>
+      <file name="ResultCard.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/ResultCard.tsx">
+        <metrics statements="7" coveredstatements="7" conditionals="10" coveredconditionals="10" methods="4" coveredmethods="4"/>
+        <line num="11" count="4" type="stmt"/>
+        <line num="14" count="39" type="stmt"/>
+        <line num="18" count="39" type="stmt"/>
+        <line num="20" count="39" type="cond" truecount="2" falsecount="0"/>
+        <line num="24" count="39" type="cond" truecount="2" falsecount="0"/>
+        <line num="26" count="39" type="stmt"/>
+        <line num="42" count="1" type="stmt"/>
+      </file>
+      <file name="ResultList.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/ResultList.tsx">
+        <metrics statements="4" coveredstatements="4" conditionals="2" coveredconditionals="2" methods="2" coveredmethods="2"/>
+        <line num="9" count="21" type="cond" truecount="2" falsecount="0"/>
+        <line num="10" count="17" type="stmt"/>
+        <line num="13" count="4" type="stmt"/>
+        <line num="16" count="28" type="stmt"/>
+      </file>
+      <file name="SearchBar.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/SearchBar.tsx">
+        <metrics statements="7" coveredstatements="7" conditionals="5" coveredconditionals="4" methods="3" coveredmethods="3"/>
+        <line num="9" count="127" type="stmt"/>
+        <line num="12" count="9" type="stmt"/>
+        <line num="13" count="9" type="stmt"/>
+        <line num="14" count="9" type="cond" truecount="1" falsecount="1"/>
+        <line num="15" count="9" type="stmt"/>
+        <line num="19" count="127" type="stmt"/>
+        <line num="24" count="102" type="stmt"/>
+      </file>
+      <file name="SearchStatus.tsx" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/components/SearchStatus.tsx">
+        <metrics statements="9" coveredstatements="9" conditionals="8" coveredconditionals="8" methods="1" coveredmethods="1"/>
+        <line num="9" count="23" type="cond" truecount="2" falsecount="0"/>
+        <line num="10" count="7" type="stmt"/>
+        <line num="13" count="16" type="cond" truecount="2" falsecount="0"/>
+        <line num="14" count="2" type="stmt"/>
+        <line num="17" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="18" count="9" type="stmt"/>
+        <line num="21" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="22" count="2" type="stmt"/>
+        <line num="25" count="3" type="stmt"/>
+      </file>
+    </package>
+    <package name="src.test">
+      <metrics statements="5" coveredstatements="5" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      <file name="fixtures.ts" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/test/fixtures.ts">
+        <metrics statements="5" coveredstatements="5" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="4" count="5" type="stmt"/>
+        <line num="81" count="5" type="stmt"/>
+        <line num="84" count="5" type="stmt"/>
+        <line num="87" count="5" type="stmt"/>
+        <line num="100" count="5" type="stmt"/>
+      </file>
+    </package>
+    <package name="src.types">
+      <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+      <file name="search.ts" path="/Users/tbright/Documents/code/lds-gpt/frontend/src/types/search.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="12" count="2" type="stmt"/>
+      </file>
+    </package>
+  </project>
+</coverage>
